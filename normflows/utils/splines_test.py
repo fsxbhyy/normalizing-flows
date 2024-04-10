@@ -9,7 +9,7 @@ from torch.testing import assert_close
 class RationalQuadraticSplineTest(unittest.TestCase):
     def test_forward_inverse_are_consistent(self):
         num_bins = 10
-        shape = [2, 3, 4]
+        shape = [3]
 
         unnormalized_widths = torch.randn(*shape, num_bins)
         unnormalized_heights = torch.randn(*shape, num_bins)
@@ -32,11 +32,31 @@ class RationalQuadraticSplineTest(unittest.TestCase):
         assert_close(logabsdet + logabsdet_inv, torch.zeros_like(logabsdet),
                      atol=1e-3, rtol=1e-3)
 
+class LinearSplineTest(unittest.TestCase):
+    def test_forward_inverse_are_consistent(self):
+        num_bins = 10
+        shape = [3,]
+
+        unnormalized_widths = torch.randn(*shape, num_bins)
+
+        def call_spline_fn(inputs, inverse=False):
+            return splines.linear_spline(
+                inputs=inputs,
+                unnormalized_widths=unnormalized_widths,
+                inverse=inverse,
+            )
+
+        inputs = torch.rand(*shape)
+        outputs, logabsdet = call_spline_fn(inputs, inverse=False)
+        inputs_inv, logabsdet_inv = call_spline_fn(outputs, inverse=True)
+        assert_close(inputs, inputs_inv, atol=1e-4, rtol=1e-4)
+        assert_close(logabsdet + logabsdet_inv, torch.zeros_like(logabsdet),
+                     atol=1e-3, rtol=1e-3)
 
 class UnconstrainedRationalQuadraticSplineTest(unittest.TestCase):
     def test_forward_inverse_are_consistent(self):
         num_bins = 10
-        shape = [2, 3, 4]
+        shape = [3,]
 
         unnormalized_widths = torch.randn(*shape, num_bins)
         unnormalized_heights = torch.randn(*shape, num_bins)

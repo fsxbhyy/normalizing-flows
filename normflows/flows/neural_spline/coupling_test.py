@@ -13,7 +13,7 @@ from normflows.flows.flow_test import FlowTest
 from normflows import utils
 
 
-def create_coupling_transform(shape, **kwargs):
+def create_coupling_transform(shape, type,**kwargs):
     if len(shape) == 1:
 
         def create_net(in_features, out_features):
@@ -30,11 +30,14 @@ def create_coupling_transform(shape, **kwargs):
             )
 
     mask = utils.masks.create_mid_split_binary_mask(shape[0])
-
-    return coupling.PiecewiseRationalQuadraticCoupling(mask=mask, transform_net_create_fn=create_net, **kwargs), mask
+    if type == "linear":
+        return coupling.PiecewiseLinearCoupling(mask=mask, transform_net_create_fn=create_net, **kwargs), mask
+    elif type=="rationalQuadratic":
+        return coupling.PiecewiseRationalQuadraticCoupling(mask=mask, transform_net_create_fn=create_net, **kwargs), mask
 
 
 batch_size = 5
+
 
 
 class PiecewiseCouplingTransformTest(FlowTest):
@@ -42,11 +45,15 @@ class PiecewiseCouplingTransformTest(FlowTest):
 
     def test_rqcs(self):
         for shape in self.shapes:
-            for tails in [None, "linear"]:
-                with self.subTest(shape=shape, tails=tails):
-                    inputs = torch.rand(batch_size, *shape)
-                    flow, _ = create_coupling_transform(shape, tails=tails)
-                    self.checkForwardInverse(flow, inputs)
+            for type in ["linear", "rationalQuadratic"]:
+                for tails in [None, "linear"]:
+                    with self.subTest(shape=shape, type=type, tails=tails):
+                        inputs = torch.rand(batch_size, *shape)
+                        if  type=="linear":
+                            flow, _ = create_coupling_transform(shape, type)
+                        else:
+                            flow, _ = create_coupling_transform(shape, type, tails=tails)
+                        self.checkForwardInverse(flow, inputs)
 
     def test_rqcs_unconditional(self):
         for shape in self.shapes:
@@ -54,7 +61,7 @@ class PiecewiseCouplingTransformTest(FlowTest):
                 inputs = torch.rand(batch_size, *shape)
                 img_shape = shape[1:] if len(shape) > 1 else None
                 flow, _ = create_coupling_transform(
-                    shape, apply_unconditional_transform=True, img_shape=img_shape
+                    shape, "rationalQuadratic", apply_unconditional_transform=True, img_shape=img_shape
                 )
                 self.checkForwardInverse(flow, inputs)
 

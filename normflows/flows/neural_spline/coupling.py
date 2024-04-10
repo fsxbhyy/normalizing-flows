@@ -166,6 +166,132 @@ class PiecewiseCoupling(Coupling):
     def _piecewise_cdf(self, inputs, transform_params, inverse=False):
         raise NotImplementedError()
 
+class PiecewiseLinearCDF(Flow):
+    def __init__(
+        self,
+        shape,
+        num_bins=10,
+        identity_init=True,
+        min_bin_width=splines.DEFAULT_MIN_BIN_WIDTH,
+        # min_bin_height=splines.DEFAULT_MIN_BIN_HEIGHT
+    ):
+        super().__init__()
+
+        self.min_bin_width = min_bin_width
+        # self.min_bin_height = min_bin_height
+
+        if identity_init:
+            self.unnormalized_widths = nn.Parameter(torch.zeros(*shape, num_bins))
+            # self.unnormalized_heights = nn.Parameter(torch.zeros(*shape, num_bins))
+        else:
+            self.unnormalized_widths = nn.Parameter(torch.rand(*shape, num_bins))
+            # self.unnormalized_heights = nn.Parameter(torch.rand(*shape, num_bins))
+
+    @staticmethod
+    def _share_across_batch(params, batch_size):
+        return params[None, ...].expand(batch_size, *params.shape)
+
+    def _spline(self, inputs, inverse=False):
+        batch_size = inputs.shape[0]
+
+        unnormalized_widths = self._share_across_batch(
+            self.unnormalized_widths, batch_size
+        )
+        # unnormalized_heights = self._share_across_batch(
+        #     self.unnormalized_heights, batch_size
+        # )
+
+        spline_fn = splines.linear_spline
+        spline_kwargs = {}
+
+        outputs, logabsdet = spline_fn(
+            inputs=inputs,
+            unnormalized_widths=unnormalized_widths,
+            inverse=inverse,
+            min_bin_width=self.min_bin_width,
+            **spline_kwargs
+        )
+
+        return outputs, utils.sum_except_batch(logabsdet)
+
+    def forward(self, inputs, context=None):
+        return self._spline(inputs, inverse=False)
+
+    def inverse(self, inputs, context=None):
+        return self._spline(inputs, inverse=True)
+
+class PiecewiseLinearCoupling(PiecewiseCoupling):
+    def __init__(
+        self,
+        mask,
+        transform_net_create_fn,
+        num_bins=10,
+        img_shape=None,
+        min_bin_width=splines.DEFAULT_MIN_BIN_WIDTH,
+        #min_bin_height=splines.DEFAULT_MIN_BIN_HEIGHT
+    ):
+
+        self.num_bins = num_bins
+        self.min_bin_width = min_bin_width
+        #self.min_bin_height = min_bin_height
+
+        # Split tails parameter if needed
+        features_vector = torch.arange(len(mask))
+        identity_features = features_vector.masked_select(mask <= 0)
+        transform_features = features_vector.masked_select(mask > 0)
+        # if apply_unconditional_transform:
+        #     unconditional_transform = lambda features: PiecewiseRationalQuadraticCDF(
+        #         shape=[features] + (img_shape if img_shape else []),
+        #         num_bins=num_bins,
+        #         tails=tails_,
+        #         tail_bound=tail_bound_,
+        #         min_bin_width=min_bin_width,
+        #         min_bin_height=min_bin_height,
+        #         min_derivative=min_derivative,
+        #     )
+        # else:
+        #     unconditional_transform = None
+
+        super().__init__(
+            mask,
+            transform_net_create_fn,
+            # unconditional_transform=unconditional_transform,
+        )
+
+    def _transform_dim_multiplier(self):
+        return self.num_bins 
+
+    def _piecewise_cdf(self, inputs, transform_params, inverse=False):
+        unnormalized_widths = transform_params[..., : self.num_bins]
+        #unnormalized_heights = transform_params[..., self.num_bins : 2 * self.num_bins]
+
+        if hasattr(self.transform_net, "hidden_features"):
+            unnormalized_widths /= np.sqrt(self.transform_net.hidden_features)
+            #unnormalized_heights /= np.sqrt(self.transform_net.hidden_features)
+        elif hasattr(self.transform_net, "hidden_channels"):
+            unnormalized_widths /= np.sqrt(self.transform_net.hidden_channels)
+            #unnormalized_heights /= np.sqrt(self.transform_net.hidden_channels)
+        else:
+            warnings.warn(
+                "Inputs to the softmax are not scaled down: initialization might be bad."
+            )
+
+        spline_fn = splines.linear_spline
+        spline_kwargs = {}
+        
+        return spline_fn(
+            inputs=inputs,
+            unnormalized_widths=unnormalized_widths,
+            #unnormalized_heights=unnormalized_heights,
+            inverse=inverse,
+            min_bin_width=self.min_bin_width,
+            # min_bin_height=self.min_bin_height,
+            **spline_kwargs
+        )
+
+
+
+
 
 class PiecewiseRationalQuadraticCDF(Flow):
     def __init__(

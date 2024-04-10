@@ -100,6 +100,43 @@ class NormalizingFlow(nn.Module):
             log_q += log_det
         log_q += self.q0.log_prob(z)
         return -torch.mean(log_q)
+    def IS_forward_kld(self, num_samples=1, beta=1.0):
+        """Estimates forward KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
+
+        Args:
+          x: Batch sampled from target distribution
+
+        Returns:
+          Estimate of forward KL divergence averaged over batch
+        """
+        #Still have stability issue
+        z, log_q_ = self.q0(num_samples)
+        log_q = torch.zeros_like(log_q_)
+        log_q += log_q_
+        for flow in self.flows:
+            z, log_det = flow(z)
+            log_q -= log_det
+        #utils.set_requires_grad(self, False)
+        prob = torch.abs(self.p.prob(z))
+        q = torch.exp(log_q)
+        pmean = torch.mean(prob/q)
+        prob = prob/pmean
+        logp= torch.where(prob > 1e-16, torch.log(prob), torch.log(prob + 1e-16))
+        ISratio = prob/q
+        #print("test:", prob, "\n", ISratio, "\n", log_q, "\n")
+       # print( -torch.mean(ISratio.detach()*log_q))
+        #utils.set_requires_grad(self, True)
+        return torch.mean(ISratio.detach()*(logp.detach()  - log_q))
+
+    def MCvar(self, num_samples=1):
+        z, log_q_ = self.q0(num_samples)
+        log_J = torch.zeros_like(log_q_)
+        #log_J += log_q_
+        for flow in self.flows:
+            z, log_det = flow(z)
+            log_J += log_det
+        log_p = self.p.log_prob(z) 
+        return torch.mean(torch.exp( 2 * log_p + 2*log_J ))
 
     def reverse_kld(self, num_samples=1, beta=1.0, score_fn=True):
         """Estimates reverse KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
@@ -178,6 +215,41 @@ class NormalizingFlow(nn.Module):
             z, log_det = flow(z)
             log_q -= log_det
         return z, log_q
+
+    def integrate(self, num_samples=10000):
+        """Importance sampling integration with flow-based approximate distribution
+
+        Args:
+          num_samples: Number of samples to draw
+
+        Returns:
+          mean, variance
+        """
+        z, log_q = self.sample(num_samples)
+        q = torch.exp(log_q)
+        func = self.p.prob(z)
+        return torch.mean(func/q, dim=0),torch.sqrt(torch.var(func/q, dim=0))
+
+    def integrate_block(self, num_samples, num_blocks):
+   
+      # mean and stddev of trained NF
+      print('Estimating integral from trained network')
+      means_t = []
+      means_f = []
+      stddevs_f = []
+      pt_f = []
+      for _ in range(1,num_blocks+1):
+          mean, var_ = self.integrate(num_samples)
+          means_t.append(mean.item())
+          if _ % 10 == 0:
+              mean_array = np.array(means_t)
+              mean_combined = np.mean(mean_array)     
+              std_combined = np.std(mean_array)
+              means_f.append(mean_combined)
+              stddevs_f.append(std_combined)
+              pt_f.append(_*num_samples)
+      return mean_combined, std_combined
+
 
     def log_prob(self, x):
         """Get log probability for batch

@@ -5,6 +5,7 @@ from . import (
 )
 
 from .wrapper import (
+    CoupledLinearSpline,
     CoupledRationalQuadraticSpline,
     AutoregressiveRationalQuadraticSpline,
     CircularCoupledRationalQuadraticSpline,

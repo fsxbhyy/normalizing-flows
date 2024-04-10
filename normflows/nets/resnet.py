@@ -104,6 +104,62 @@ class ResidualNet(nn.Module):
         return outputs
 
 
+class Dense(nn.Module):
+    """A general-purpose residual network. Works only with 1-dim inputs."""
+
+    def __init__(
+        self,
+        in_features,
+        out_features,
+        hidden_features,
+        context_features=None,
+        num_blocks=2,
+        activation=F.relu,
+        dropout_probability=0.0,
+        use_batch_norm=False,
+        preprocessing=None,
+    ):
+        super().__init__()
+        self.hidden_features = hidden_features
+        self.context_features = context_features
+        self.preprocessing = preprocessing
+        # if context_features is not None:
+        #     self.initial_layer = nn.Linear(
+        #         #in_features + context_features, hidden_features
+        #         in_features + context_features, out_features
+        #     )
+        # else:
+        #     self.initial_layer = nn.Linear(in_features,out_features)
+        # self.blocks = nn.ModuleList(
+        #     [
+        #         ResidualBlock(
+        #             features=hidden_features,
+        #             context_features=context_features,
+        #             activation=activation,
+        #             dropout_probability=dropout_probability,
+        #             use_batch_norm=use_batch_norm,
+        #         )
+        #         for _ in range(num_blocks)
+        #     ]
+        # )
+        # self.final_layer = nn.Linear(hidden_features, out_features)
+        self.final_layer = nn.Linear(in_features, out_features)
+
+    def forward(self, inputs, context=None):
+        # if self.preprocessing is None:
+        #     temps = inputs
+        # else:
+        #     temps = self.preprocessing(inputs)
+        # if context is None:
+        #     temps = self.initial_layer(temps)
+        # else:
+        #     temps = self.initial_layer(torch.cat((temps, context), dim=1))
+        # for block in self.blocks:
+        #     temps = block(temps, context=context)
+        outputs = self.final_layer(inputs)
+        return outputs
+
+
 class ConvResidualBlock(nn.Module):
     def __init__(
         self,

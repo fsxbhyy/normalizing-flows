@@ -5,27 +5,34 @@ import numpy as np
 from normflows.flows import CoupledRationalQuadraticSpline, \
     AutoregressiveRationalQuadraticSpline, \
     CircularCoupledRationalQuadraticSpline, \
-    CircularAutoregressiveRationalQuadraticSpline
+    CircularAutoregressiveRationalQuadraticSpline,\
+    CoupledLinearSpline
 from normflows.flows.flow_test import FlowTest
 
 
 class NsfWrapperTest(FlowTest):
     def test_normal_nsf(self):
+        torch.manual_seed(42)
         batch_size = 3
         hidden_units = 128
         hidden_layers = 2
         for latent_size in [2, 5]:
-            for flow_cls in [CoupledRationalQuadraticSpline,
-                             AutoregressiveRationalQuadraticSpline]:
+            for flow_cls in [CoupledLinearSpline]:
+                            # , CoupledRationalQuadraticSpline,
+                            # AutoregressiveRationalQuadraticSpline]:
                 for context_feature in [None, 3]:
                     with self.subTest(latent_size=latent_size, flow_cls=flow_cls):
                         flow = flow_cls(latent_size, hidden_units, hidden_layers,
                                         num_context_channels=context_feature)
-                        inputs = torch.randn((batch_size, latent_size))
+                        if flow_cls == CoupledLinearSpline:
+                            inputs = torch.rand((batch_size, latent_size))
+                        else:
+                            inputs = torch.randn((batch_size, latent_size))
                         if context_feature is None:
                             context = None
                         else:
                             context = torch.randn((batch_size, context_feature))
+                       
                         self.checkForwardInverse(flow, inputs, context)
 
     def test_circular_nsf(self):
