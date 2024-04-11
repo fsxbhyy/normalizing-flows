@@ -35,8 +35,12 @@ def generate_model(target):
     #for i in range(K):
     #     flows += [nf.flows.CoupledRationalQuadraticSpline(latent_size, hidden_layers, hidden_units)]
     #     flows += [nf.flows.LULinearPermute(latent_size)]
-    flows += [nf.flows.CoupledRationalQuadraticSpline(latent_size, hidden_layers, hidden_units)]
-    flows += [nf.flows.CoupledRationalQuadraticSpline(latent_size, hidden_layers, hidden_units, reverse_mask=True)]
+    # flows += [nf.flows.CoupledRationalQuadraticSpline(latent_size, hidden_layers, hidden_units)]
+    # flows += [nf.flows.CoupledRationalQuadraticSpline(latent_size, hidden_layers, hidden_units, reverse_mask=True)]
+
+    masks = nf.utils.iflow_binary_masks(latent_size)
+    for mask in masks[::-1]:
+        flows += [nf.flows.CoupledRationalQuadraticSpline(latent_size, hidden_layers, hidden_units, mask=mask)]
     # Set base distribuiton
     q0 = nf.distributions.base.Uniform(ndims, 0.0, 1.0)
         

@@ -13,7 +13,20 @@ class Sharp(nf.distributions.Target):
         return -torch.log(x[:,0])/torch.sqrt(x[:,0])
     def log_prob(self, x):
         return torch.log(torch.abs(self.prob(x)))
-    
+
+class Tight(nf.distributions.Target):
+    def __init__(self):
+        super().__init__(prop_scale=torch.tensor(1.0), 
+                         prop_shift=torch.tensor(0.0))
+        self.ndims = 3
+        self.targetval = 1.3932
+    def prob(self,x):
+        integrand =torch.prod(torch.cos(x*np.pi), axis=-1)
+        integrand = 1/(1-integrand)
+        return integrand
+    def log_prob(self, x):
+        return torch.log(torch.abs(self.prob(x)))
+
 class Gauss(nf.distributions.Target):
     def __init__(self, ndims=2, alpha=0.2):
         super().__init__(prop_scale=torch.tensor(1.0), 
@@ -50,10 +63,12 @@ class Sphere(nf.distributions.Target):
         super().__init__(prop_scale=torch.tensor(1.0), 
                          prop_shift=torch.tensor(0.0))
         self.ndims =ndims
-        self.log_const = -self.ndims *(np.log(self.alpha) + 0.5 * np.log(np.pi))
-        self.targetval = erf(1/(2.*self.alpha))**self.ndims
+        self.targetval = np.pi ** ((ndims+1) / 2.0)/((2**(ndims+1) * gamma(((ndims+1) / 2.0) + 1)))
     def log_prob(self, x):
-        return -1.0 * torch.sum((x-0.5)**2/self.alpha**2, -1) + self.log_const
+        prob = torch.abs(self.prob(x))
+        return torch.where(prob > 1e-16, torch.log(prob), torch.log(prob + 1e-16))
     def prob(self, x):
-        return torch.exp(self.log_prob(x))
+        integrand = torch.sum(torch.square(x), axis=-1)
+        integrand = torch.sqrt(torch.maximum(1 - integrand, torch.zeros_like(integrand)))
+        return integrand
 

@@ -96,7 +96,8 @@ class CoupledRationalQuadraticSpline(Flow):
         tail_bound=3.0,
         activation=nn.ReLU,
         dropout_probability=0.0,
-        reverse_mask=False,
+        reverse_mask = False,
+        mask = None,
         init_identity=True,
     ):
         """Constructor
@@ -135,8 +136,12 @@ class CoupledRationalQuadraticSpline(Flow):
                 )
             return net
 
+        if mask==None:
+            mask_input = create_alternating_binary_mask(num_input_channels, even=reverse_mask)
+        else:
+            mask_input = mask
         self.prqct = PiecewiseRationalQuadraticCoupling(
-            mask=create_alternating_binary_mask(num_input_channels, even=reverse_mask),
+            mask = mask_input,
             transform_net_create_fn=transform_net_create_fn,
             num_bins=num_bins,
             tails=tails,

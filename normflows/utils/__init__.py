@@ -7,6 +7,8 @@ from . import (
     splines,
 )
 
+from .masks import iflow_binary_masks
+
 from .eval import bitsPerDim, bitsPerDimDataset
 
 from .nn import ActNorm, ClampExp, ConstScaleLayer, tile, sum_except_batch
