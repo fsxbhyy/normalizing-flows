@@ -155,6 +155,7 @@ class NormalizingFlow(nn.Module):
         for flow in self.flows:
             z, log_det = flow(z)
             log_q -= log_det
+        
         if not score_fn:
             z_ = z
             log_q = torch.zeros(len(z_), device=z_.device)

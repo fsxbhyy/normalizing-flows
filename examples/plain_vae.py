@@ -150,23 +150,23 @@ def flow_vae_datasets(
         "mnist": datasets.MNIST(
             "datasets", train=True, download=True, transform=transform
         ),
-        "cifar10": datasets.CIFAR10(
-            "datasets", train=True, download=True, transform=transform
-        ),
-        "cifar100": datasets.CIFAR100(
-            "datasets", train=True, download=True, transform=transform
-        ),
+        # "cifar10": datasets.CIFAR10(
+        #     "datasets", train=True, download=True, transform=transform
+        # ),
+        # "cifar100": datasets.CIFAR100(
+        #     "datasets", train=True, download=True, transform=transform
+        # ),
     }
     data_d_test = {
         "mnist": datasets.MNIST(
             "datasets", train=False, download=True, transform=transform
         ),
-        "cifar10": datasets.CIFAR10(
-            "datasets", train=False, download=True, transform=transform
-        ),
-        "cifar100": datasets.CIFAR100(
-            "datasets", train=False, download=True, transform=transform
-        ),
+        # "cifar10": datasets.CIFAR10(
+        #     "datasets", train=False, download=True, transform=transform
+        # ),
+        # "cifar100": datasets.CIFAR100(
+        #     "datasets", train=False, download=True, transform=transform
+        # ),
     }
     train_loader = torch.utils.data.DataLoader(
         data_d_train.get(id), batch_size=batch_size, shuffle=shuffle
