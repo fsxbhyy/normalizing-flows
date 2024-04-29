@@ -119,7 +119,7 @@ class CoupledRationalQuadraticSpline(Flow):
 
         def transform_net_create_fn(in_features, out_features):
             #net = ResidualNet(
-            net = Dense(
+            net = ResidualNet(
                 in_features=in_features,
                 out_features=out_features,
                 context_features=num_context_channels,
@@ -297,7 +297,7 @@ class AutoregressiveRationalQuadraticSpline(Flow):
             hidden_features=num_hidden_channels,
             context_features=num_context_channels,
             num_bins=num_bins,
-            tails="linear",
+            tails= "linear",
             tail_bound=tail_bound,
             num_blocks=num_blocks,
             use_residual_blocks=True,

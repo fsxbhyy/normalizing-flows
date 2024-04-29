@@ -175,8 +175,10 @@ class Uniform(BaseDistribution):
             shape = tuple(shape)
         self.shape = shape
         self.d = np.prod(shape)
-        self.low = torch.tensor(low)
-        self.high = torch.tensor(high)
+        self.register_buffer("low", torch.tensor(low))
+        self.register_buffer("high", torch.tensor(high))
+        #self.low = torch.tensor(low)
+        #self.high = torch.tensor(high)
         self.log_prob_val = -self.d * np.log(self.high - self.low)
 
     def forward(self, num_samples=1, context=None):

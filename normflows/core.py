@@ -100,6 +100,25 @@ class NormalizingFlow(nn.Module):
             log_q += log_det
         log_q += self.q0.log_prob(z)
         return -torch.mean(log_q)
+    def IS_chi2(self, num_samples=1):
+        z, log_q_ = self.q0(num_samples)
+        log_q = torch.zeros_like(log_q_)
+        log_q += log_q_
+        for flow in self.flows:
+            z, log_det = flow(z)
+            log_q -= log_det
+        #utils.set_requires_grad(self, False)
+        prob = torch.abs(self.p.prob(z))
+        q = torch.exp(log_q)
+        pmean = torch.mean(prob/q)
+        prob = prob/pmean
+        #print("test:", prob, "\n", ISratio, "\n", log_q, "\n")
+       # print( -torch.mean(ISratio.detach()*log_q))
+        #utils.set_requires_grad(self, True)
+        return torch.mean(torch.square(prob.detach()  - q)/q/q.detach())
+
+        
+     
     def IS_forward_kld(self, num_samples=1, beta=1.0):
         """Estimates forward KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
 
@@ -109,13 +128,12 @@ class NormalizingFlow(nn.Module):
         Returns:
           Estimate of forward KL divergence averaged over batch
         """
-        #Still have stability issue
-        z, log_q_ = self.q0(num_samples)
-        log_q = torch.zeros_like(log_q_)
-        log_q += log_q_
+        utils.set_requires_grad(self, False)
+        z, _ = self.q0(num_samples)
         for flow in self.flows:
-            z, log_det = flow(z)
-            log_q -= log_det
+            z, _ = flow(z)
+        utils.set_requires_grad(self, True)
+        z_, log_q = self.inverse_and_log_det(z)
         #utils.set_requires_grad(self, False)
         prob = torch.abs(self.p.prob(z))
         q = torch.exp(log_q)
@@ -217,7 +235,7 @@ class NormalizingFlow(nn.Module):
             log_q -= log_det
         return z, log_q
 
-    def integrate(self, num_samples=10000):
+    def integrate(self):
         """Importance sampling integration with flow-based approximate distribution
 
         Args:
@@ -226,29 +244,31 @@ class NormalizingFlow(nn.Module):
         Returns:
           mean, variance
         """
+        num_samples = self.p.batchsize
         z, log_q = self.sample(num_samples)
         q = torch.exp(log_q)
         func = self.p.prob(z)
-        return torch.mean(func/q, dim=0),torch.sqrt(torch.var(func/q, dim=0))
+        return torch.mean(func/q, dim=0)
 
-    def integrate_block(self, num_samples, num_blocks):
-   
-      # mean and stddev of trained NF
+    def integrate_block(self, num_blocks):
       print('Estimating integral from trained network')
-      means_t = []
-      means_f = []
-      stddevs_f = []
-      pt_f = []
-      for _ in range(1,num_blocks+1):
-          mean, var_ = self.integrate(num_samples)
-          means_t.append(mean.item())
-          if _ % 10 == 0:
-              mean_array = np.array(means_t)
-              mean_combined = np.mean(mean_array)     
-              std_combined = np.std(mean_array)
-              means_f.append(mean_combined)
-              stddevs_f.append(std_combined)
-              pt_f.append(_*num_samples)
+      
+      num_samples = self.p.batchsize
+      # Pre-allocate tensor for storing means
+      means_t = torch.zeros(num_blocks)
+      # Loop to fill the tensor with mean values
+      for i in range(num_blocks):
+        self.p.samples, self.p.log_q = self.q0(num_samples)
+        for flow in self.flows:
+          self.p.samples, self.p.log_det = flow(self.p.samples)
+          self.p.log_q -= self.p.log_det
+        self.p.log_q = torch.exp(self.p.log_q)
+        self.p.var = self.p.prob(self.p.samples)
+        means_t[i] = torch.mean(self.p.var/self.p.log_q, dim=0)
+      # Compute mean and standard deviation directly on the tensor
+      mean_combined = torch.mean(means_t)
+      std_combined = torch.std(means_t)
+
       return mean_combined, std_combined
 
 

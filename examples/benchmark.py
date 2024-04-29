@@ -36,7 +36,7 @@ class Gauss(nf.distributions.Target):
         self.log_const = -self.ndims *(np.log(self.alpha) + 0.5 * np.log(np.pi))
         self.targetval = erf(1/(2.*self.alpha))**self.ndims
     def log_prob(self, x):
-        return -1.0 * torch.sum((x-0.5)**2/self.alpha**2, -1) + self.log_const
+        return (-1.0 * torch.sum((x-0.5)**2/self.alpha**2, -1) + self.log_const)
     def prob(self, x):
         return torch.exp(self.log_prob(x))
     
