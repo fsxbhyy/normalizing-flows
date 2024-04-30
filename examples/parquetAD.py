@@ -73,7 +73,7 @@ class FeynmanDiagram(nf.distributions.Target):
         self.register_buffer("inK", torch.zeros(self.leafvalues.shape))
         self.register_buffer("dispersion", torch.zeros(self.leafvalues.shape))
         self.register_buffer("factor",  torch.ones([self.batchsize,]) )
-        self.register_buffer("root",  torch.ones([self.batchsize,]) )
+        self.register_buffer("root",  torch.ones([self.batchsize]) )
         self.register_buffer("isfermi",  torch.full(self.leafvalues.shape, True) )
         self.register_buffer("isbose",  torch.full(self.leafvalues.shape, True) )
         self.register_buffer("leaf_fermi", torch.zeros(self.leafvalues.shape))
@@ -169,6 +169,7 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def prob(self, var):
         self._evalleaf(var)
+
         self.root = torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0) * self.factor * (self.maxK * 2*np.pi**2)**(self.innerLoopNum)*(self.beta)**(self.totalTauNum-1)/ (2*np.pi)**(self.dim * self.innerLoopNum)
         #self.root = (func_sigma_o100.graphfunc(self.leafvalues) * self.factor * (self.maxK * 2*np.pi**2)**(self.innerLoopNum)/ (2*np.pi)**(self.dim * self.innerLoopNum)).detach()
         #print("fermi",self.leaf_fermi, "tau", self.tau, "root", self.root)
@@ -226,7 +227,7 @@ def main(argv):
    
   
     
-    diagram = FeynmanDiagram(loopBasis, leafstates, leafvalues, 10000)
+    diagram = FeynmanDiagram(loopBasis, leafstates, leafvalues, 100000)
     # q0 = nf.distributions.base.Uniform(diagram.ndims, 0.0, 1.0)
     # samples = 0.0 * q0.sample(diagram.batchsize)
     # samples[:, 0] += 50.45739393425352/diagram.beta
@@ -244,7 +245,7 @@ def main(argv):
     epochs = 100
     # torch.cuda.memory._record_memory_history()
     tracemalloc.start()
-    blocks = 10
+    blocks = 400
     with torch.no_grad():
         mean, err = nfm.integrate_block(blocks)
     

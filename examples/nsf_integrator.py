@@ -27,7 +27,7 @@ flags.DEFINE_integer('nsamples', 10000, 'Number of points to sample per epoch',
 
 def generate_model(target, base_dist = None):
     # Define flows
-    torch.manual_seed(31)
+    #torch.manual_seed(31)
     #K = 3
     ndims = target.ndims
     latent_size = ndims

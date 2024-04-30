@@ -267,7 +267,7 @@ class NormalizingFlow(nn.Module):
         means_t[i] = torch.mean(self.p.var/self.p.log_q, dim=0)
       # Compute mean and standard deviation directly on the tensor
       mean_combined = torch.mean(means_t)
-      std_combined = torch.std(means_t)
+      std_combined = torch.std(means_t)/num_blocks**0.5
 
       return mean_combined, std_combined
 
