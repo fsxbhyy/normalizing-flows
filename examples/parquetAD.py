@@ -14,9 +14,8 @@ import tracemalloc
 
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 #include(os.path.join(root_dir, f"func_sigma_o100.py"))
-#from absl import app, flags
-
-       
+#from absl import app, flags       
+num_loops = [2, 6, 15, 39, 111, 448]
 
 
 
@@ -186,11 +185,13 @@ def main(argv):
    
     # partition, diagpara, extT_labels = diagram_info
     partition = [(2,0,0)]
-    maxMomNum = max(key[0] for key in partition) + 1
+    order = max(key[0] for key in partition)
+    maxMomNum = order + 1
     name="sigma"
     df = pd.read_csv(os.path.join(root_dir, f"loopBasis_{name}_maxOrder6.csv"))
     #print([df[col].tolist() for col in df.columns])
-    loopBasis = torch.tensor([df[col].iloc[:maxMomNum].tolist() for col in df.columns]).T
+
+    loopBasis = torch.tensor([df[col].iloc[:maxMomNum].tolist() for col in df.columns[:num_loops[order-1]]]).T
     leafstates = []
     leafvalues = []
     
@@ -227,7 +228,7 @@ def main(argv):
    
   
     
-    diagram = FeynmanDiagram(loopBasis, leafstates, leafvalues, 100000)
+    diagram = FeynmanDiagram(loopBasis, leafstates, leafvalues, 10000)
     # q0 = nf.distributions.base.Uniform(diagram.ndims, 0.0, 1.0)
     # samples = 0.0 * q0.sample(diagram.batchsize)
     # samples[:, 0] += 50.45739393425352/diagram.beta
