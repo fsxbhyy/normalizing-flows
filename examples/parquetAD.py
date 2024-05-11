@@ -18,6 +18,7 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 2
+beta = 10.0
 
 
 def _StringtoIntVector(s):
@@ -54,7 +55,14 @@ class FeynmanDiagram(nf.distributions.Target):
         self.register_buffer("kF", (9 * pi / (2 * self.spin)) ** (1 / 3) / self.rs)
         self.register_buffer("EF", self.kF**2 / (2 * self.me))
         self.register_buffer("mu", self.EF)
-        self.register_buffer("beta", 50.0 / self.EF)
+        self.register_buffer("beta", beta / self.EF)
+        if beta == 1.0:
+            _mu = -0.021460754987022185
+        elif beta == 10.0:
+            _mu = 0.9916412363704453
+        else:
+            _mu = 1.0
+        self.register_buffer("mu", _mu * self.EF)
         self.register_buffer("maxK", 10 * self.kF)
 
         print(
@@ -257,7 +265,7 @@ def main(argv):
 
     diagram = FeynmanDiagram(loopBasis, leafstates[0], leafvalues[0], 10000)
 
-    nfm = generate_model(diagram)
+    nfm = generate_model(diagram, num_hidden_channels=32, num_bins=8)
     epochs = 100
     blocks = 400
 
