@@ -17,7 +17,7 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 # include(os.path.join(root_dir, f"func_sigma_o100.py"))
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 2
+order = 3
 beta = 10.0
 
 
@@ -213,8 +213,8 @@ class FeynmanDiagram(nf.distributions.Target):
         self._evalleaf(var)
 
         self.root = (
-            torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
-            # torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
+            # torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
+            torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
             * self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
             * (self.beta) ** (self.totalTauNum - 1)
@@ -263,7 +263,7 @@ def main(argv):
         leafstates.append(state)
         leafvalues.append(values)
 
-    diagram = FeynmanDiagram(loopBasis, leafstates[0], leafvalues[0], 10000)
+    diagram = FeynmanDiagram(loopBasis, leafstates[0], leafvalues[0], 100000)
 
     nfm = generate_model(diagram, num_hidden_channels=32, num_bins=8)
     epochs = 100

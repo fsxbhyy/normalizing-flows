@@ -8,8 +8,8 @@ mass2 = [0.5]
 
 Fs = [-0.0]        # Fermi liquid parameter with zero angular momentum
 beta = [10.0]      # inverse temperature beta = β*E_F 
-# neval = 4e6       # number of Monte Carlo samples
-neval = 16e6       # number of Monte Carlo samples
+neval = 4e6       # number of Monte Carlo samples
+#neval = 16e6       # number of Monte Carlo samples
 isDynamic = false  # whether to use effective field theory with dynamic screening or not 
 isFock = false     # whether to use Fock renormalization or not
 
@@ -48,7 +48,7 @@ for (_rs, _mass2, _F, _beta, _order) in Iterators.product(rs, mass2, Fs, beta, o
         sigma, result = Sigma.MC_Clib(para; kgrid=kgrid, ngrid=ngrid,
             neval=neval, filename=filename, partition=partition, neighbor=neighbor,
             # reweight_goal=reweight_goal,
-            isLayered2D=isLayered2D)
+            isLayered2D=isLayered2D, verbose=1)
     else
         sigma, result = Sigma.MC(para; kgrid=kgrid, ngrid=ngrid, diag_generator=diagGenerate,
             neval=neval, filename=filename, partition=partition, neighbor=neighbor,
