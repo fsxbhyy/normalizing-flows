@@ -24,6 +24,7 @@ from .residual import Residual
 
 from . import neural_spline
 from .neural_spline import (
+    VegasLinearSpline,
     CoupledLinearSpline,
     CoupledRationalQuadraticSpline,
     AutoregressiveRationalQuadraticSpline,

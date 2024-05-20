@@ -6,6 +6,7 @@ import re
 import normflows as nf
 from nsf_integrator import generate_model, train_model
 from funcs_sigma import *
+import vegas
 
 # from matplotlib import pyplot as plt
 import tracemalloc
@@ -19,6 +20,8 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 3
 beta = 10.0
+batch_size = 100000
+# batch_size = 10
 
 
 def _StringtoIntVector(s):
@@ -28,7 +31,7 @@ def _StringtoIntVector(s):
 
 class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
-    def __init__(self, loopBasis, leafstates, leafvalues, batchsize):
+    def __init__(self, order, loopBasis, leafstates, leafvalues, batchsize):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
         # Unpack leafstates for clarity
         lftype, lforders, leaf_tau_i, leaf_tau_o, leafMomIdx = leafstates
@@ -85,7 +88,7 @@ class FeynmanDiagram(nf.distributions.Target):
             "loopBasis", loopBasis
         )  # size=(self.innerLoopNum + 1, loopBasis.shape[1])
         self.register_buffer(
-            "loops", torch.empty((batchsize, self.dim, loopBasis.shape[1]))
+            "loops", torch.empty((self.batchsize, self.dim, loopBasis.shape[1]))
         )
         self.register_buffer(
             "leafvalues",
@@ -94,18 +97,18 @@ class FeynmanDiagram(nf.distributions.Target):
         self.register_buffer(
             "p", torch.zeros([self.batchsize, self.dim, self.innerLoopNum + 1])
         )
-        self.register_buffer("tau", torch.zeros_like(leafvalues))
-        self.register_buffer("kq2", torch.zeros_like(leafvalues))
-        self.register_buffer("inK", torch.zeros_like(leafvalues))
-        self.register_buffer("dispersion", torch.zeros_like(leafvalues))
+        self.register_buffer("tau", torch.zeros_like(self.leafvalues))
+        self.register_buffer("kq2", torch.zeros_like(self.leafvalues))
+        self.register_buffer("invK", torch.zeros_like(self.leafvalues))
+        self.register_buffer("dispersion", torch.zeros_like(self.leafvalues))
         self.register_buffer(
-            "isfermi", torch.full_like(leafvalues, True, dtype=torch.bool)
+            "isfermi", torch.full_like(self.leafvalues, True, dtype=torch.bool)
         )
         self.register_buffer(
-            "isbose", torch.full_like(leafvalues, True, dtype=torch.bool)
+            "isbose", torch.full_like(self.leafvalues, True, dtype=torch.bool)
         )
-        self.register_buffer("leaf_fermi", torch.zeros_like(leafvalues))
-        self.register_buffer("leaf_bose", torch.zeros_like(leafvalues))
+        self.register_buffer("leaf_fermi", torch.zeros_like(self.leafvalues))
+        self.register_buffer("leaf_bose", torch.zeros_like(self.leafvalues))
         self.register_buffer("factor", torch.ones([self.batchsize]))
         self.register_buffer("root", torch.ones([self.batchsize]))
 
@@ -132,7 +135,7 @@ class FeynmanDiagram(nf.distributions.Target):
         b = torch.where(self.dispersion > 0, -self.beta, self.beta)
 
         # Use torch operations to ensure calculations are done on GPU if tensors are on GPU
-        self.leaf_fermi = sign * torch.exp(self.dispersion * a)
+        self.leaf_fermi[:] = sign * torch.exp(self.dispersion * a)
         self.leaf_fermi /= 1 + torch.exp(self.dispersion * b)
 
     @torch.no_grad()
@@ -165,7 +168,7 @@ class FeynmanDiagram(nf.distributions.Target):
         # p_rescale /= (1.0 + 1e-10 - p_rescale)
 
         p_rescale *= self.maxK
-        self.factor = torch.prod(p_rescale**2 * torch.sin(theta), dim=1)
+        self.factor[:] = torch.prod(p_rescale**2 * torch.sin(theta), dim=1)
         self.p[:, 0, 1:] = p_rescale * torch.sin(theta)
         self.p[:, 1, 1:] = self.p[:, 0, 1:]
         self.p[:, 0, 1:] *= torch.cos(phi)
@@ -178,41 +181,49 @@ class FeynmanDiagram(nf.distributions.Target):
         self.isbose[:] = self.lftype == 2
         # update momentum
         self.extract_mom(var)  # varK should have shape [batchsize, dim, innerLoopMom]
-        # self.loops = torch.tensordot(self.p, self.loopBasis, dims = ([-1], [0])) #loopBasis has shape [innerLoopMom, ]
         # print(self.p.shape)
-        # print(self.p)
         # print(self.loopBasis.shape)
-        # print(self.loopBasis)
         torch.matmul(self.p, self.loopBasis, out=self.loops)
 
-        # self.tau = var[:, self.leaf_tau_o] - var[:, self.leaf_tau_i]
-        self.tau = torch.where(self.leaf_tau_o == 0, 0.0, var[:, self.leaf_tau_o - 1])
+        self.tau[:] = torch.where(
+            self.leaf_tau_o == 0, 0.0, var[:, self.leaf_tau_o - 1]
+        )
         self.tau -= torch.where(self.leaf_tau_i == 0, 0.0, var[:, self.leaf_tau_i - 1])
         self.tau *= self.beta
 
         kq = self.loops[:, :, self.leafMomIdx]
         # print("test1:", lftype, self.p, self.loops.shape, self.loopBasis[:, :2], kq)
-        self.kq2 = torch.sum(kq * kq, dim=1)
-        self.dispersion = self.kq2 / (2 * self.me) - self.mu
+        self.kq2[:] = torch.sum(kq * kq, dim=1)
+        self.dispersion[:] = self.kq2 / (2 * self.me) - self.mu
         # print("test2:",self.loops.shape, eps.shape, tau.shape, leaf_tau_i.shape)
         # order = lforders[0]
         self.kernelFermiT()
         # print("var", kq2, self.mu, kernelFermiT(tau, eps, self.beta), tau, eps, self.beta)
         # Calculate bosonic leaves
-        # order = lforders[1]
-        self.invK = 1.0 / (self.kq2 + self.mass2)
-        self.leaf_bose = ((self.e0**2 / self.eps0) * self.invK) * (
+        self.invK[:] = 1.0 / (self.kq2 + self.mass2)
+        self.leaf_bose[:] = ((self.e0**2 / self.eps0) * self.invK) * (
             self.mass2 * self.invK
         ) ** self.lforders[1]
+        # print("Before update:", self.leafvalues)
+        # print(self.isfermi)
+        # print(self.isbose)
+        # print(self.leaf_fermi)
+        # print(self.leaf_bose)
+        # self.leafvalues[self.isfermi] = self.leaf_fermi[self.isfermi]
+        # self.leafvalues[self.isbose] = self.leaf_bose[self.isbose]
+        # print("After update:", self.leafvalues)
+        # exit(-1)
         self.leafvalues = torch.where(self.isfermi, self.leaf_fermi, self.leafvalues)
         self.leafvalues = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
-        # print(self.leafvalues)
 
     @torch.no_grad()
     def prob(self, var):
+        var = torch.Tensor(var)
+        # print(var.shape)
         self._evalleaf(var)
+        # print("leafvalues", self.leafvalues)
 
-        self.root = (
+        self.root[:] = (
             # torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
             torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
             * self.factor
@@ -263,7 +274,13 @@ def main(argv):
         leafstates.append(state)
         leafvalues.append(values)
 
-    diagram = FeynmanDiagram(loopBasis, leafstates[0], leafvalues[0], 100000)
+    diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
+
+    # D = 4 * order - 1
+    # integration_domain = [[0, 1]] * D
+    # map = vegas.AdaptiveMap(integration_domain, ninc=1000)
+    # x = np.random.uniform(0.0, 1.0, (batch_size, D))
+    # map.adapt_to_samples(x, diagram.prob(x), nitn=10)
 
     nfm = generate_model(diagram, num_hidden_channels=32, num_bins=8)
     epochs = 100

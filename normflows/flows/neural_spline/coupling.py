@@ -2,11 +2,13 @@
 Implementations of various coupling layers.
 Code taken from https://github.com/bayesiains/nsf
 """
+
 import warnings
 
 import numpy as np
 import torch
 from torch import nn
+from vegas import AdaptiveMap
 
 from ..base import Flow
 from ... import utils
@@ -166,6 +168,117 @@ class PiecewiseCoupling(Coupling):
     def _piecewise_cdf(self, inputs, transform_params, inverse=False):
         raise NotImplementedError()
 
+
+# class PieceWiseVegasCoupling(PiecewiseCoupling):
+class PieceWiseVegasCoupling:
+    @torch.no_grad()
+    def __init__(
+        self,
+        func,
+        num_input_channels,
+        integration_region,
+        batchsize,
+        num_increments=1000,
+        niters=20,
+    ):
+        super().__init__()
+
+        self.vegas_map = AdaptiveMap(integration_region, ninc=num_increments)
+        # y = np.random.uniform(0.0, 1.0, (batchsize, num_input_channels))
+        # y = np.array(y, dtype=float)
+        # self.vegas_map.adapt_to_samples(y, func(y), nitn=niters)
+        self.y = torch.rand(batchsize, num_input_channels, dtype=torch.float64)
+        self.vegas_map.adapt_to_samples(
+            self.y.numpy(), func(self.y.numpy()), nitn=niters
+        )
+        # self.x = torch.zeros_like(self.y)
+
+    @torch.no_grad()
+    def forward(self, inputs):
+        inputs_np = inputs.detach().numpy().astype(np.float64)
+        outputs = torch.zeros_like(inputs, dtype=torch.float64)
+        jac = torch.zeros(inputs.shape[0], dtype=torch.float64)
+        self.vegas_map.map(inputs_np, outputs.numpy(), jac.numpy())
+
+        logabsdet = torch.log(jac)
+
+        return outputs.float(), logabsdet.float()
+
+    @torch.no_grad()
+    def inverse(self, inputs):
+        # inputs = inputs.detach().numpy()
+        # inputs = torch.Tensor.numpy(inputs)
+        # outputs = np.empty(inputs.shape, float)
+        # jac = np.empty(inputs.shape[0], float)
+        inputs_np = inputs.detach().numpy().astype(np.float64)
+        outputs = torch.zeros_like(inputs, dtype=torch.float64)
+        jac = torch.zeros(inputs.shape[0], dtype=torch.float64)
+
+        # self.vegas_map.invmap(inputs.numpy(), outputs.numpy(), jac.numpy())
+        self.vegas_map.invmap(inputs_np, outputs.numpy(), jac.numpy())
+        logabsdet = torch.log(1 / jac)
+
+        # return outputs, logabsdet
+        return outputs.float(), logabsdet.float()
+
+
+# class PieceWiseVegasCoupling(nn.Module):
+#     def __init__(
+#         self,
+#         func,
+#         num_input_channels,
+#         integration_region,
+#         batchsize,
+#         apply_unconditional_transform=False,
+#     ):
+#         super().__init__()
+
+#         self.integration_region = integration_region
+#         self.apply_unconditional_transform = apply_unconditional_transform
+
+#         if apply_unconditional_transform:
+#             self.unconditional_transform = lambda: PieceWiseVegasCDF(
+#                 func=func,
+#                 num_input_channels=num_input_channels,
+#                 integration_region=integration_region,
+#                 batchsize=batchsize,
+#             )
+#         else:
+#             self.unconditional_transform = None
+
+#         # self.transform_net = nn.Sequential(
+#         #     nn.Linear(num_input_channels, num_input_channels * 2),
+#         #     nn.ReLU(),
+#         #     nn.Linear(num_input_channels * 2, num_input_channels * 2),
+#         # )
+
+#     def forward(self, inputs, context=None):
+#         return self._piecewise_vegas(inputs, inverse=False, context=context)
+
+#     def inverse(self, inputs, context=None):
+#         return self._piecewise_vegas(inputs, inverse=True, context=context)
+
+#     def _piecewise_vegas(self, inputs, inverse=False, context=None):
+#         transform_features = inputs
+#         identity_features = inputs
+
+#         transform_params = self.transform_net(transform_features)
+#         if self.unconditional_transform:
+#             transform_params = self.unconditional_transform()
+
+#         outputs, logabsdet = PieceWiseVegasCDF(
+#             num_input_channels=transform_features.shape[1],
+#             integration_region=self.integration_region,
+#         ).forward(transform_params)
+
+#         if inverse:
+#             outputs = torch.cat([identity_features, outputs], dim=-1)
+#         else:
+#             outputs = torch.cat([outputs, identity_features], dim=-1)
+
+#         return outputs, logabsdet
+
+
 class PiecewiseLinearCDF(Flow):
     def __init__(
         self,
@@ -209,7 +322,7 @@ class PiecewiseLinearCDF(Flow):
             unnormalized_widths=unnormalized_widths,
             inverse=inverse,
             min_bin_width=self.min_bin_width,
-            **spline_kwargs
+            **spline_kwargs,
         )
 
         return outputs, utils.sum_except_batch(logabsdet)
@@ -220,6 +333,7 @@ class PiecewiseLinearCDF(Flow):
     def inverse(self, inputs, context=None):
         return self._spline(inputs, inverse=True)
 
+
 class PiecewiseLinearCoupling(PiecewiseCoupling):
     def __init__(
         self,
@@ -228,12 +342,11 @@ class PiecewiseLinearCoupling(PiecewiseCoupling):
         num_bins=10,
         img_shape=None,
         min_bin_width=splines.DEFAULT_MIN_BIN_WIDTH,
-        #min_bin_height=splines.DEFAULT_MIN_BIN_HEIGHT
+        # min_bin_height=splines.DEFAULT_MIN_BIN_HEIGHT
     ):
-
         self.num_bins = num_bins
         self.min_bin_width = min_bin_width
-        #self.min_bin_height = min_bin_height
+        # self.min_bin_height = min_bin_height
 
         # Split tails parameter if needed
         features_vector = torch.arange(len(mask))
@@ -259,18 +372,18 @@ class PiecewiseLinearCoupling(PiecewiseCoupling):
         )
 
     def _transform_dim_multiplier(self):
-        return self.num_bins 
+        return self.num_bins
 
     def _piecewise_cdf(self, inputs, transform_params, inverse=False):
         unnormalized_widths = transform_params[..., : self.num_bins]
-        #unnormalized_heights = transform_params[..., self.num_bins : 2 * self.num_bins]
+        # unnormalized_heights = transform_params[..., self.num_bins : 2 * self.num_bins]
 
         if hasattr(self.transform_net, "hidden_features"):
             unnormalized_widths /= np.sqrt(self.transform_net.hidden_features)
-            #unnormalized_heights /= np.sqrt(self.transform_net.hidden_features)
+            # unnormalized_heights /= np.sqrt(self.transform_net.hidden_features)
         elif hasattr(self.transform_net, "hidden_channels"):
             unnormalized_widths /= np.sqrt(self.transform_net.hidden_channels)
-            #unnormalized_heights /= np.sqrt(self.transform_net.hidden_channels)
+            # unnormalized_heights /= np.sqrt(self.transform_net.hidden_channels)
         else:
             warnings.warn(
                 "Inputs to the softmax are not scaled down: initialization might be bad."
@@ -278,19 +391,16 @@ class PiecewiseLinearCoupling(PiecewiseCoupling):
 
         spline_fn = splines.linear_spline
         spline_kwargs = {}
-        
+
         return spline_fn(
             inputs=inputs,
             unnormalized_widths=unnormalized_widths,
-            #unnormalized_heights=unnormalized_heights,
+            # unnormalized_heights=unnormalized_heights,
             inverse=inverse,
             min_bin_width=self.min_bin_width,
             # min_bin_height=self.min_bin_height,
-            **spline_kwargs
+            **spline_kwargs,
         )
-
-
-
 
 
 class PiecewiseRationalQuadraticCDF(Flow):
@@ -373,7 +483,7 @@ class PiecewiseRationalQuadraticCDF(Flow):
             min_bin_width=self.min_bin_width,
             min_bin_height=self.min_bin_height,
             min_derivative=self.min_derivative,
-            **spline_kwargs
+            **spline_kwargs,
         )
 
         return outputs, utils.sum_except_batch(logabsdet)
@@ -399,7 +509,6 @@ class PiecewiseRationalQuadraticCoupling(PiecewiseCoupling):
         min_bin_height=splines.DEFAULT_MIN_BIN_HEIGHT,
         min_derivative=splines.DEFAULT_MIN_DERIVATIVE,
     ):
-
         self.num_bins = num_bins
         self.min_bin_width = min_bin_width
         self.min_bin_height = min_bin_height
@@ -484,5 +593,5 @@ class PiecewiseRationalQuadraticCoupling(PiecewiseCoupling):
             min_bin_width=self.min_bin_width,
             min_bin_height=self.min_bin_height,
             min_derivative=self.min_derivative,
-            **spline_kwargs
+            **spline_kwargs,
         )

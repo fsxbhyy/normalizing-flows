@@ -5,6 +5,7 @@ from . import (
 )
 
 from .wrapper import (
+    VegasLinearSpline,
     CoupledLinearSpline,
     CoupledRationalQuadraticSpline,
     AutoregressiveRationalQuadraticSpline,

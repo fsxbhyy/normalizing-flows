@@ -3,12 +3,44 @@ from torch import nn
 import numpy as np
 
 from ..base import Flow
-from .coupling import PiecewiseRationalQuadraticCoupling,  PiecewiseLinearCoupling
+from .coupling import (
+    PiecewiseRationalQuadraticCoupling,
+    PiecewiseLinearCoupling,
+    PieceWiseVegasCoupling,
+)
 from .autoregressive import MaskedPiecewiseRationalQuadraticAutoregressive
 from ...nets.resnet import ResidualNet, Dense
 from ...utils.masks import create_alternating_binary_mask
 from ...utils.nn import PeriodicFeaturesElementwise
 from ...utils.splines import DEFAULT_MIN_DERIVATIVE
+
+
+class VegasLinearSpline(Flow):
+    """
+    Neural coupling layer using the Vegas map for transformations.
+    """
+
+    def __init__(
+        self,
+        func,
+        num_input_channels,
+        integration_region,
+        batchsize,
+    ):
+        super().__init__()
+
+        self.pvct = PieceWiseVegasCoupling(
+            func, num_input_channels, integration_region, batchsize
+        )
+
+    def forward(self, z):
+        z, log_det = self.pvct.forward(z)
+        return z, log_det.view(-1)
+
+    def inverse(self, z):
+        z, log_det = self.pvct.inverse(z)
+        return z, log_det.view(-1)
+
 
 class CoupledLinearSpline(Flow):
     """
@@ -77,8 +109,6 @@ class CoupledLinearSpline(Flow):
         return z, log_det.view(-1)
 
 
-
-
 class CoupledRationalQuadraticSpline(Flow):
     """
     Neural spline flow coupling layer, wrapper for the implementation
@@ -92,12 +122,12 @@ class CoupledRationalQuadraticSpline(Flow):
         num_hidden_channels,
         num_context_channels=None,
         num_bins=8,
-        tails=None, #"linear",
+        tails=None,  # "linear",
         tail_bound=3.0,
         activation=nn.ReLU,
         dropout_probability=0.0,
-        reverse_mask = False,
-        mask = None,
+        reverse_mask=False,
+        mask=None,
         init_identity=True,
     ):
         """Constructor
@@ -118,7 +148,7 @@ class CoupledRationalQuadraticSpline(Flow):
         super().__init__()
 
         def transform_net_create_fn(in_features, out_features):
-            #net = ResidualNet(
+            # net = ResidualNet(
             net = ResidualNet(
                 in_features=in_features,
                 out_features=out_features,
@@ -136,12 +166,14 @@ class CoupledRationalQuadraticSpline(Flow):
                 )
             return net
 
-        if mask==None:
-            mask_input = create_alternating_binary_mask(num_input_channels, even=reverse_mask)
+        if mask == None:
+            mask_input = create_alternating_binary_mask(
+                num_input_channels, even=reverse_mask
+            )
         else:
             mask_input = mask
         self.prqct = PiecewiseRationalQuadraticCoupling(
-            mask = mask_input,
+            mask=mask_input,
             transform_net_create_fn=transform_net_create_fn,
             num_bins=num_bins,
             tails=tails,
@@ -297,7 +329,7 @@ class AutoregressiveRationalQuadraticSpline(Flow):
             hidden_features=num_hidden_channels,
             context_features=num_context_channels,
             num_bins=num_bins,
-            tails= "linear",
+            tails="linear",
             tail_bound=tail_bound,
             num_blocks=num_blocks,
             use_residual_blocks=True,

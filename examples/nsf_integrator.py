@@ -4,6 +4,7 @@ import numpy as np
 import normflows as nf
 import benchmark
 from scipy.special import erf, gamma
+import vegas
 
 # from matplotlib import pyplot as plt
 from tqdm import tqdm
@@ -26,23 +27,25 @@ flags.DEFINE_integer(
 )
 
 
-def generate_model(target, base_dist=None, num_hidden_channels=32, num_bins=8):
+def generate_model(
+    target, base_dist=None, hidden_layers=2, num_hidden_channels=32, num_bins=8
+):
     # Define flows
     # torch.manual_seed(31)
     # K = 3
     ndims = target.ndims
     num_input_channels = ndims
-    hidden_layers = ndims
 
-    flows = []
-    # for i in range(K):
-    #     flows += [nf.flows.AutoregressiveRationalQuadraticSpline(num_input_channels, hidden_layers, num_hidden_channels)]
-    #     flows += [nf.flows.LULinearPermute(num_input_channels)]
-    # for i in range(K):
-    #     flows += [nf.flows.CoupledRationalQuadraticSpline(num_input_channels, hidden_layers, num_hidden_channels)]
-    #     flows += [nf.flows.LULinearPermute(num_input_channels)]
-    # flows += [nf.flows.CoupledRationalQuadraticSpline(num_input_channels, hidden_layers, num_hidden_channels)]
-    # flows += [nf.flows.CoupledRationalQuadraticSpline(num_input_channels, hidden_layers, num_hidden_channels, reverse_mask=True)]
+    @vegas.batchintegrand
+    def func(x):
+        return torch.Tensor.numpy(target.prob(x))
+
+    # flows = []
+    flows = [
+        nf.flows.VegasLinearSpline(
+            func, num_input_channels, [[0, 1]] * target.ndims, target.batchsize
+        )
+    ]
 
     masks = nf.utils.iflow_binary_masks(num_input_channels)
     # print(masks)
