@@ -5,6 +5,7 @@ import time  # For benchmarking
 from parquetAD import FeynmanDiagram, load_leaf_info
 import matplotlib.pyplot as plt
 import vegas
+from vegas_torch import VegasMap
 
 # To avoid copying things to GPU memory,
 # ideally allocate everything in torch on the GPU
@@ -62,26 +63,45 @@ print("intial grid:")
 print(m.settings())
 
 y = np.random.uniform(0.0, 1.0, (batchsize, dim))
-y = np.array(y, dtype=float)
+# y = np.array(y, dtype=float)
 
 m.adapt_to_samples(y, func(y), nitn=niters)
 # m.adapt_to_samples(y, func(y), nitn=10)
 print(m.settings())
-# print(m.extract_grid())
-m.show_grid()
+# m.show_grid()
 # m.show_grid(axes=[(2, 3)])
+
+y = np.random.uniform(0.0, 1.0, (batchsize, dim))
 
 jac = np.empty(y.shape[0], float)
 x = np.empty(y.shape, float)
 m.map(y, x, jac)
-
-jac1 = np.empty(x.shape[0], float)
-y_inv = np.empty(x.shape, float)
-m.invmap(x, y_inv, jac1)
+# print("x:", x)
+# print("jac:", jac)
+# jac1 = np.empty(x.shape[0], float)
+# y_inv = np.empty(x.shape, float)
+# m.invmap(x, y_inv, jac1)
+# print("inv y:", y_inv)
+# print("inv jac:", jac1)
 
 fx = func(x)
 fy = torch.Tensor(jac) * fx
 print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
+
+
+# map_torch = VegasMap(func, dim, integration_domain, batchsize)
+map_torch = VegasMap(m, dim, integration_domain, batchsize)
+
+x, jac = map_torch(torch.Tensor(y))
+fx = func(x.numpy())
+fy = jac * fx
+print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
+# y = torch.Tensor(y)
+# print(y)
+# x, jac = map_torch(y)
+# print("torch map x:", x, "\n jac:", jac)
+# y0, jac = map_torch.inverse(x)
+# print("torch invmap y:", y0, "\n jac:", jac)
 
 
 def smc(f, neval, dim):
@@ -98,6 +118,11 @@ def g(y):
     return jac * func(x)
 
 
+def g_torch(y):
+    x, jac = map_torch.forward(torch.Tensor(y))
+    return jac.numpy() * func(x.numpy())
+
+
 def block_results(data, nblocks=100):
     data = np.array(data)
     neval = len(data)
@@ -110,22 +135,41 @@ def block_results(data, nblocks=100):
 
 
 nblocks = 64
-# with map
+# with Veags map
+start_time = time.time()
 data = []
 for i in range(nblocks):
     data.append(smc(g, batchsize, dim)[0])
 data = np.array(data)
 r = (np.average(data), np.std(data) / nblocks**0.5)
 print("   SMC + map:", f"{r[0]:.6f} +- {r[1]:.6f}")
+end_time = time.time()
+wall_clock_time = end_time - start_time
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
+
+# with Vegas map (torch)
+start_time = time.time()
+data = []
+for i in range(nblocks):
+    data.append(smc(g_torch, batchsize, dim)[0])
+data = np.array(data)
+r = (np.average(data), np.std(data) / nblocks**0.5)
+print("   SMC + map (torch):", f"{r[0]:.6f} +- {r[1]:.6f}")
+end_time = time.time()
+wall_clock_time = end_time - start_time
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 
 # without map
+start_time = time.time()
 data = []
 for i in range(nblocks):
     data.append(smc(func, batchsize, dim)[0])
 data = np.array(data)
 r = (np.average(data), np.std(data) / nblocks**0.5)
 print("SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
-
+end_time = time.time()
+wall_clock_time = end_time - start_time
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 # integ = vegas.Integrator(m, alpha=0.0, beta=0.0)
 # r = integ(func, neval=5e7, nitn=5)
 # print(r.summary())

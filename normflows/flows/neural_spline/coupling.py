@@ -170,7 +170,7 @@ class PiecewiseCoupling(Coupling):
 
 
 # class PieceWiseVegasCoupling(PiecewiseCoupling):
-class PieceWiseVegasCoupling:
+class PieceWiseVegasCoupling(nn.Module):
     @torch.no_grad()
     def __init__(
         self,
@@ -183,43 +183,74 @@ class PieceWiseVegasCoupling:
     ):
         super().__init__()
 
-        self.vegas_map = AdaptiveMap(integration_region, ninc=num_increments)
-        # y = np.random.uniform(0.0, 1.0, (batchsize, num_input_channels))
-        # y = np.array(y, dtype=float)
-        # self.vegas_map.adapt_to_samples(y, func(y), nitn=niters)
-        self.y = torch.rand(batchsize, num_input_channels, dtype=torch.float64)
-        self.vegas_map.adapt_to_samples(
-            self.y.numpy(), func(self.y.numpy()), nitn=niters
-        )
-        # self.x = torch.zeros_like(self.y)
+        vegas_map = AdaptiveMap(integration_region, ninc=num_increments)
+        y = np.random.uniform(0.0, 1.0, (batchsize, num_input_channels))
+        vegas_map.adapt_to_samples(y, func(y), nitn=niters)
+
+        self.register_buffer("y", torch.Tensor(y))
+        self.register_buffer("grid", torch.Tensor(vegas_map.grid))
+        self.register_buffer("inc", torch.Tensor(vegas_map.inc))
+        self.register_buffer("ninc", torch.tensor(num_increments))
+        self.register_buffer("dim", torch.tensor(num_input_channels))
+        self.register_buffer("x", torch.empty_like(self.y))
+        self.register_buffer("jac", torch.ones(batchsize))
 
     @torch.no_grad()
-    def forward(self, inputs):
-        inputs_np = inputs.detach().numpy().astype(np.float64)
-        outputs = torch.zeros_like(inputs, dtype=torch.float64)
-        jac = torch.zeros(inputs.shape[0], dtype=torch.float64)
-        self.vegas_map.map(inputs_np, outputs.numpy(), jac.numpy())
+    def forward(self, y):
+        y_ninc = y * self.ninc
+        iy = torch.floor(y_ninc).long()
+        dy_ninc = y_ninc - iy
 
-        logabsdet = torch.log(jac)
+        self.jac.fill_(1.0)
+        for d in range(self.dim):
+            # Handle the case where iy < ninc
+            mask = iy[:, d] < self.ninc
+            if mask.any():
+                self.x[mask, d] = (
+                    self.grid[d, iy[mask, d]]
+                    + self.inc[d, iy[mask, d]] * dy_ninc[mask, d]
+                )
+                self.jac[mask] *= self.inc[d, iy[mask, d]] * self.ninc
 
-        return outputs.float(), logabsdet.float()
+            # Handle the case where iy >= ninc
+            mask_inv = ~mask
+            if mask_inv.any():
+                self.x[mask_inv, d] = self.grid[d, self.ninc]
+                self.jac[mask_inv] *= self.inc[d, self.ninc - 1] * self.ninc
+
+        return self.x, torch.log(self.jac)
 
     @torch.no_grad()
-    def inverse(self, inputs):
-        # inputs = inputs.detach().numpy()
-        # inputs = torch.Tensor.numpy(inputs)
-        # outputs = np.empty(inputs.shape, float)
-        # jac = np.empty(inputs.shape[0], float)
-        inputs_np = inputs.detach().numpy().astype(np.float64)
-        outputs = torch.zeros_like(inputs, dtype=torch.float64)
-        jac = torch.zeros(inputs.shape[0], dtype=torch.float64)
+    def inverse(self, x):
+        self.jac.fill_(1.0)
+        for d in range(self.dim):
+            iy = torch.searchsorted(self.grid[d, :], x[:, d].contiguous(), right=True)
 
-        # self.vegas_map.invmap(inputs.numpy(), outputs.numpy(), jac.numpy())
-        self.vegas_map.invmap(inputs_np, outputs.numpy(), jac.numpy())
-        logabsdet = torch.log(1 / jac)
+            mask_valid = (iy > 0) & (iy <= self.ninc)
+            mask_lower = iy <= 0
+            mask_upper = iy > self.ninc
 
-        # return outputs, logabsdet
-        return outputs.float(), logabsdet.float()
+            # Handle valid range (0 < iy <= self.ninc)
+            if mask_valid.any():
+                iyi_valid = iy[mask_valid] - 1
+                self.y[mask_valid, d] = (
+                    iyi_valid
+                    + (x[mask_valid, d] - self.grid[d, iyi_valid])
+                    / self.inc[d, iyi_valid]
+                ) / self.ninc
+                self.jac[mask_valid] *= self.inc[d, iyi_valid] * self.ninc
+
+            # Handle lower bound (iy <= 0)\
+            if mask_lower.any():
+                self.y[mask_lower, d] = 0.0
+                self.jac[mask_lower] *= self.inc[d, 0] * self.ninc
+
+            # Handle upper bound (iy > self.ninc)
+            if mask_upper.any():
+                self.y[mask_upper, d] = 1.0
+                self.jac[mask_upper] *= self.inc[d, self.ninc - 1] * self.ninc
+
+        return self.y, torch.log(1 / self.jac)
 
 
 # class PieceWiseVegasCoupling(nn.Module):

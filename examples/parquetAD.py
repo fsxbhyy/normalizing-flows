@@ -18,10 +18,9 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 # include(os.path.join(root_dir, f"func_sigma_o100.py"))
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 3
+order = 2
 beta = 10.0
 batch_size = 100000
-# batch_size = 10
 
 
 def _StringtoIntVector(s):
@@ -219,13 +218,12 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def prob(self, var):
         var = torch.Tensor(var)
-        # print(var.shape)
         self._evalleaf(var)
         # print("leafvalues", self.leafvalues)
 
         self.root[:] = (
-            # torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
-            torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
+            torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
+            # torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
             * self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
             * (self.beta) ** (self.totalTauNum - 1)
