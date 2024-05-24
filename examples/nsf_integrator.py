@@ -6,7 +6,7 @@ import benchmark
 from scipy.special import erf, gamma
 import vegas
 
-# from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt
 from tqdm import tqdm
 import h5py  # Make sure to import h5py
 
@@ -16,8 +16,15 @@ enable_cuda = True
 device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string("function", "Gauss", "The function to integrate", short_name="f")
-flags.DEFINE_float("alpha", 0.5, "The width of the Gaussians", short_name="a")
+# flags.DEFINE_string("function", "Gauss", "The function to integrate", short_name="f")
+flags.DEFINE_string(
+    "function",
+    "Polynomial",
+    "The function to integrate",
+    short_name="f",
+    # "function", "Polynomial", "The function to integrate", short_name="f"
+)
+flags.DEFINE_float("alpha", 0.1, "The width of the Gaussians", short_name="a")
 flags.DEFINE_integer(
     "ndims", 2, "The number of dimensions for the integral", short_name="d"
 )
@@ -28,7 +35,12 @@ flags.DEFINE_integer(
 
 
 def generate_model(
-    target, base_dist=None, hidden_layers=2, num_hidden_channels=32, num_bins=8
+    target,
+    base_dist=None,
+    hidden_layers=2,
+    num_hidden_channels=32,
+    num_bins=8,
+    has_VegasLayer=False,
 ):
     # Define flows
     # torch.manual_seed(31)
@@ -38,14 +50,16 @@ def generate_model(
 
     @vegas.batchintegrand
     def func(x):
-        return torch.Tensor.numpy(target.prob(x))
+        return torch.Tensor.numpy(target.prob(torch.tensor(x)))
 
-    # flows = []
-    flows = [
-        nf.flows.VegasLinearSpline(
-            func, num_input_channels, [[0, 1]] * target.ndims, target.batchsize
-        )
-    ]
+    if has_VegasLayer:
+        flows = [
+            nf.flows.VegasLinearSpline(
+                func, num_input_channels, [[0, 1]] * target.ndims, target.batchsize
+            )
+        ]
+    else:
+        flows = []
 
     masks = nf.utils.iflow_binary_masks(num_input_channels)
     # print(masks)
@@ -92,19 +106,9 @@ def train_model(nfm, max_iter=1000, num_samples=10000):
 
     loss_hist = np.array([])
 
-    # grid_size = 100
-    # xx, yy = torch.meshgrid(torch.linspace(0.0, 1.0, grid_size), torch.linspace(0.0, 1.0, grid_size))
-    # zz = torch.cat([xx.unsqueeze(2), yy.unsqueeze(2)], 2).view(-1, 2)
-    # #zz = zz.to(device)
-    # log_prob = nfm.log_prob(zz).to('cpu').view(*xx.shape)
-
-    # prob = torch.exp(log_prob)
-    # prob[torch.isnan(prob)] = 0
-
-    # plt.figure(figsize=(15, 15))
-    # plt.pcolormesh(xx, yy, prob.data.numpy())
-    # plt.gca().set_aspect('equal', 'box')
-    # plt.show()
+    print("before training \n")
+    # print(nfm.flows[0].pvct.grid)
+    # print(nfm.flows[0].pvct.inc)
 
     optimizer = torch.optim.Adam(nfm.parameters(), lr=1e-3)  # , weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
@@ -134,21 +138,11 @@ def train_model(nfm, max_iter=1000, num_samples=10000):
 
         # Log loss
         loss_hist = np.append(loss_hist, loss.to("cpu").data.numpy())
-        # print(loss_hist)
         scheduler.step()
 
-    # Plot learned distribution
-    # zz = zz.to(device)
-    # log_prob = nfm.log_prob(zz).to('cpu').view(*xx.shape)
-
-    # prob = torch.exp(log_prob)
-    # prob[torch.isnan(prob)] = 0
-
-    # plt.figure(figsize=(15, 15))
-    # plt.pcolormesh(xx, yy, prob.data.numpy())
-    # plt.gca().set_aspect('equal', 'box')
-    # plt.show()
-    # Plot loss
+    print("after training \n")
+    # print(nfm.flows[0].pvct.grid)
+    # print(nfm.flows[0].pvct.inc)
     print(loss_hist)
 
 
@@ -158,24 +152,72 @@ def main(argv):
     alpha = FLAGS.alpha
     nsamples = FLAGS.nsamples
     epochs = FLAGS.epochs
+    block_samples = 10000
     if FLAGS.function == "Gauss":
-        target = benchmark.Gauss(ndims, alpha)
+        target = benchmark.Gauss(block_samples, ndims, alpha)
     elif FLAGS.function == "Camel":
-        target = benchmark.Camel(ndims, alpha)
+        target = benchmark.Camel(block_samples, ndims, alpha)
+    # elif FLAGS.function == "Camel_v1":
+    #     target = benchmark.Camel_v1(block_samples, ndims, alpha)
     elif FLAGS.function == "Sharp":
-        target = benchmark.Sharp()
+        target = benchmark.Sharp(block_samples)
     elif FLAGS.function == "Sphere":
-        target = benchmark.Sphere(ndims)
+        target = benchmark.Sphere(block_samples, ndims)
     elif FLAGS.function == "Tight":
-        target = benchmark.Tight()
+        target = benchmark.Tight(block_samples)
+    elif FLAGS.function == "Polynomial":
+        target = benchmark.Polynomial(block_samples)
     q0 = nf.distributions.base.Uniform(ndims, 0.0, 1.0)
-    nfm = generate_model(target, q0)
+    # nfm = generate_model(target, q0)
+    nfm = generate_model(
+        target,
+        q0,
+        # has_VegasLayer=True,
+        has_VegasLayer=False,
+        hidden_layers=2,
+        num_hidden_channels=32,
+        num_bins=8,
+    )
 
     blocks = 10
     block_samples = 10000
+
+    # Plot initial flow distribution
+    grid_size = 1000
+    xx, yy = torch.meshgrid(
+        torch.linspace(0.0, 1.0, grid_size), torch.linspace(0.0, 1.0, grid_size)
+    )
+    zz = torch.cat([xx.unsqueeze(2), yy.unsqueeze(2)], 2).view(-1, 2)
+    zz = zz.to(device)
+
     nfm.eval()
-    mean, err = nfm.integrate_block(block_samples, blocks)
+    # mean, err = nfm.integrate_block(block_samples, blocks)
+    mean, err = nfm.integrate_block(blocks)
+
+    log_prob = nfm.p.log_prob(zz).to("cpu").view(*xx.shape)
+    prob = nfm.p.prob(zz).to("cpu").view(*xx.shape)
+    print(prob, log_prob)
+    log_q = nfm.log_prob(zz).to("cpu").view(*xx.shape)
+    # log_prob = log_prob - log_q
+
     nfm.train()
+
+    prob = torch.exp(log_prob)
+    prob[torch.isnan(prob)] = 0
+    prob_q = torch.exp(log_q)
+    prob_q[torch.isnan(prob_q)] = 0
+
+    plt.figure(figsize=(15, 15))
+    plt.pcolormesh(xx, yy, prob.data.numpy())
+    plt.gca().set_aspect("equal", "box")
+    plt.title("original distribution")
+    plt.show()
+
+    plt.figure(figsize=(15, 15))
+    plt.pcolormesh(xx, yy, prob_q.data.numpy())
+    plt.gca().set_aspect("equal", "box")
+    plt.title("learned distribution")
+    plt.show()
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
             blocks * block_samples, mean, err, nfm.p.targetval
@@ -184,13 +226,39 @@ def main(argv):
 
     loss_hist = train_model(nfm, epochs, nsamples)
 
-    plt.figure(figsize=(10, 10))
-    plt.plot(loss_hist + np.log(mean.detach().numpy()), label="loss")
-    plt.legend()
-    plt.show()
+    # plt.figure(figsize=(10, 10))
+    # plt.plot(loss_hist + np.log(mean.detach().numpy()), label="loss")
+    # plt.legend()
+    # plt.show()
     nfm.eval()
-    mean, err = nfm.integrate_block(block_samples, blocks)
+
+    log_prob = nfm.p.log_prob(zz).to("cpu").view(*xx.shape)
+    prob = nfm.p.prob(zz).to("cpu").view(*xx.shape)
+    log_q = nfm.log_prob(zz).to("cpu").view(*xx.shape)
+    print(prob)
+    print(log_prob, log_q)
+
+    num_bins = 25
+    histr1, bins = nfm.histogram(0, num_bins, has_weight=True)
+    histr2, bins = nfm.histogram(1, num_bins, has_weight=True)
+    plt.figure(figsize=(15, 15))
+    plt.stairs(histr1.numpy(), bins.numpy(), label="0 Dim")
+    plt.stairs(histr2.numpy(), bins.numpy(), label="1 Dim")
+    plt.title("Histogram of learned distribution")
+    plt.legend()
+    plt.savefig("histogram.png")
+    plt.show()
+
+    mean, err = nfm.integrate_block(blocks)
     nfm.train()
+
+    prob = torch.exp(log_q)
+    prob[torch.isnan(prob)] = 0
+
+    plt.figure(figsize=(15, 15))
+    plt.pcolormesh(xx, yy, prob.data.numpy())
+    plt.gca().set_aspect("equal", "box")
+    plt.show()
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
             blocks * block_samples, mean, err, nfm.p.targetval

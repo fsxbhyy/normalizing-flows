@@ -6,10 +6,11 @@ import normflows as nf
 
 # from nf import distributions
 class Sharp(nf.distributions.Target):
-    def __init__(self):
+    def __init__(self, batchsize):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
         self.ndims = 2
         self.targetval = 4.0
+        self.batchsize = batchsize
 
     def prob(self, x):
         return -torch.log(x[:, 0]) / torch.sqrt(x[:, 0])
@@ -50,14 +51,21 @@ class Gauss(nf.distributions.Target):
 
 class Camel(nf.distributions.Target):
     # Target value not implemented
-    def __init__(self, ndims=2, alpha=0.2, pos=1.0 / 3.0):
+    def __init__(self, batchsize, ndims=2, alpha=0.2, pos=1.0 / 8.0):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
         self.ndims = ndims
         self.alpha = alpha
         self.pos = pos
         self.pre1 = np.exp(-self.ndims * (np.log(self.alpha) + 0.5 * np.log(np.pi)))
         self.pre2 = np.exp(-self.ndims * (np.log(self.alpha) + 0.5 * np.log(np.pi)))
-        # self.targetval =  0.5* (0.5*(erf(1/(3.*alpha))+erf(2/(3.*alpha))))**ndims + 0.1/16.0* (0.5*(erf(1/(3.*alpha/4.0))+erf(2/(3.*alpha/4.0))))**ndims
+        self.targetval = (
+            0.5 * (0.5 * (erf(1 / (3.0 * alpha)) + erf(2 / (3.0 * alpha)))) ** ndims
+            + 0.1
+            / 16.0
+            * (0.5 * (erf(1 / (3.0 * alpha / 4.0)) + erf(2 / (3.0 * alpha / 4.0))))
+            ** ndims
+        )
+        self.batchsize = batchsize
 
     def log_prob(self, x):
         return torch.log(self.prob(x))
@@ -66,6 +74,47 @@ class Camel(nf.distributions.Target):
         exp1 = -1.0 * torch.sum((x - (self.pos)) ** 2 / self.alpha**2, -1)
         exp2 = -1.0 * torch.sum((x - (1.0 - self.pos)) ** 2 / self.alpha**2, -1)
         return 0.5 * (self.pre1 * torch.exp(exp1) + self.pre2 * torch.exp(exp2))
+
+
+class Camel_v1(nf.distributions.Target):
+    # Target value not implemented
+    def __init__(self, batchsize, ndims=2, alpha=0.2, pos=1.0 / 8.0):
+        super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
+        self.ndims = ndims
+        self.alpha = alpha
+        self.pos = pos
+        self.pre1 = np.exp(-self.ndims * (np.log(self.alpha) + 0.5 * np.log(np.pi)))
+        self.pre2 = np.exp(-self.ndims * (np.log(self.alpha) + 0.5 * np.log(np.pi)))
+        self.targetval = (
+            0.5 * (0.5 * (erf(1 / (3.0 * alpha)) + erf(2 / (3.0 * alpha)))) ** ndims
+            + 0.1
+            / 16.0
+            * (0.5 * (erf(1 / (3.0 * alpha / 4.0)) + erf(2 / (3.0 * alpha / 4.0))))
+            ** ndims
+        )
+        self.batchsize = batchsize
+
+    def log_prob(self, x):
+        return torch.log(self.prob(x))
+
+    def prob(self, x):
+        exp1 = -1.0 * torch.sum((x - (self.pos)) ** 2 / self.alpha**2, -1)
+        exp2 = -1.0 * torch.sum((x - (1.0 - self.pos)) ** 2 / self.alpha**2, -1)
+        gx0 = (
+            torch.exp(-((x[:, 0] - (self.pos)) ** 2) / self.alpha**2)
+            + torch.exp(-((x[:, 0] - (1.0 - self.pos)) ** 2) / self.alpha**2)
+            + 1e-4
+        )
+        gx1 = (
+            torch.exp(-((x[:, 1] - (self.pos)) ** 2) / self.alpha**2)
+            + torch.exp(-((x[:, 1] - (1.0 - self.pos)) ** 2) / self.alpha**2)
+            + 1e-4
+        )
+        return (
+            0.5
+            * (self.pre1 * torch.exp(exp1) + self.pre2 * torch.exp(exp2))
+            / (gx0 * gx1)
+        )
 
 
 class Sphere(nf.distributions.Target):
@@ -89,13 +138,14 @@ class Sphere(nf.distributions.Target):
 
 
 class Polynomial(nf.distributions.Target):
-    def __init__(self, ndims=2):
+    def __init__(self, batchsize, ndims=2):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
         self.ndims = ndims
         self.targetval = ndims / 6.0
+        self.batchsize = batchsize
 
     def log_prob(self, x):
         return torch.log(self.prob(x))
 
     def prob(self, x):
-        return -torch.sum(torch.square(x), axis=-1) + torch.sum(x)
+        return -torch.sum(torch.square(x), axis=-1) + torch.sum(x, axis=-1)

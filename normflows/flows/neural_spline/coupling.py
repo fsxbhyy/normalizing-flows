@@ -190,10 +190,13 @@ class PieceWiseVegasCoupling(nn.Module):
         self.register_buffer("y", torch.Tensor(y))
         self.register_buffer("grid", torch.Tensor(vegas_map.grid))
         self.register_buffer("inc", torch.Tensor(vegas_map.inc))
-        self.register_buffer("ninc", torch.tensor(num_increments))
         self.register_buffer("dim", torch.tensor(num_input_channels))
         self.register_buffer("x", torch.empty_like(self.y))
         self.register_buffer("jac", torch.ones(batchsize))
+        if num_increments < 1000:
+            self.register_buffer("ninc", torch.tensor(1000))
+        else:
+            self.register_buffer("ninc", torch.tensor(num_increments))
 
     @torch.no_grad()
     def forward(self, y):

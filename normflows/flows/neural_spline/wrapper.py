@@ -34,7 +34,7 @@ class VegasLinearSpline(Flow):
         )
 
     def forward(self, z):
-        z, log_det = self.pvct.forward(z)
+        z, log_det = self.pvct(z)
         return z, log_det.view(-1)
 
     def inverse(self, z):

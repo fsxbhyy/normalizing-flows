@@ -17,7 +17,8 @@ torch.set_printoptions(precision=10)  # Set displayed output precision to 10 dig
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 3
-dim = 4 * order - 1
+# dim = 4 * order - 1
+dim = 2
 beta = 10.0
 solution = 0.2773  # order 2
 # solution = -0.03115 # order 3
@@ -50,14 +51,16 @@ def func(x):
 
 @vegas.batchintegrand
 def func0(x):
-    print(x.shape)
-    return x[:, 0] * x[:, 1] ** 2
+    # print(x.shape)
+    return -(x[:, 0] ** 2) - x[:, 1] ** 2 + x[:, 0] + x[:, 1]
 
 
+# integration_domain = [[0, 1]] * dim
 integration_domain = [[0, 1]] * dim
 
 # N_intervals = max(2, batchsize // (niters + 5) // 10)
-m = vegas.AdaptiveMap(integration_domain, ninc=1000)
+# m = vegas.AdaptiveMap(integration_domain, ninc=1000)
+m = vegas.AdaptiveMap(integration_domain, ninc=10)
 # m = vegas.AdaptiveMap(integration_domain, ninc=N_intervals)
 print("intial grid:")
 print(m.settings())
@@ -65,10 +68,11 @@ print(m.settings())
 y = np.random.uniform(0.0, 1.0, (batchsize, dim))
 # y = np.array(y, dtype=float)
 
-m.adapt_to_samples(y, func(y), nitn=niters)
+m.adapt_to_samples(y, func0(y), nitn=niters)
 # m.adapt_to_samples(y, func(y), nitn=10)
 print(m.settings())
 # m.show_grid()
+print(np.array(m.extract_grid()).shape)
 # m.show_grid(axes=[(2, 3)])
 
 y = np.random.uniform(0.0, 1.0, (batchsize, dim))

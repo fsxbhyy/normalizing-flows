@@ -8,7 +8,7 @@ from nsf_integrator import generate_model, train_model
 from funcs_sigma import *
 import vegas
 
-# from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt
 import tracemalloc
 # from torch.utils.viz._cycles import warn_tensor_cycles
 
@@ -18,7 +18,7 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 # include(os.path.join(root_dir, f"func_sigma_o100.py"))
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 2
+order = 3
 beta = 10.0
 batch_size = 100000
 
@@ -180,8 +180,6 @@ class FeynmanDiagram(nf.distributions.Target):
         self.isbose[:] = self.lftype == 2
         # update momentum
         self.extract_mom(var)  # varK should have shape [batchsize, dim, innerLoopMom]
-        # print(self.p.shape)
-        # print(self.loopBasis.shape)
         torch.matmul(self.p, self.loopBasis, out=self.loops)
 
         self.tau[:] = torch.where(
@@ -212,31 +210,25 @@ class FeynmanDiagram(nf.distributions.Target):
         # self.leafvalues[self.isbose] = self.leaf_bose[self.isbose]
         # print("After update:", self.leafvalues)
         # exit(-1)
-        self.leafvalues = torch.where(self.isfermi, self.leaf_fermi, self.leafvalues)
-        self.leafvalues = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
+        self.leafvalues[:] = torch.where(self.isfermi, self.leaf_fermi, self.leafvalues)
+        self.leafvalues[:] = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
 
     @torch.no_grad()
     def prob(self, var):
-        var = torch.Tensor(var)
         self._evalleaf(var)
-        # print("leafvalues", self.leafvalues)
-
         self.root[:] = (
-            torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
-            # torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
+            # torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
+            torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
             * self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
             * (self.beta) ** (self.totalTauNum - 1)
             / (2 * np.pi) ** (self.dim * self.innerLoopNum)
         )
-        # self.root = (func_sigma_o100.graphfunc(self.leafvalues) * self.factor * (self.maxK * 2*np.pi**2)**(self.innerLoopNum)/ (2*np.pi)**(self.dim * self.innerLoopNum)).detach()
-        # print("fermi",self.leaf_fermi, "tau", self.tau, "root", self.root)
         return self.root
 
     @torch.no_grad()
     def log_prob(self, var):
         self.prob(var)
-        # return torch.log(torch.where(torch.abs(self.root)>1e-10, torch.abs(self.root), torch.abs(self.root) + 1e-10))
         return torch.log(torch.clamp(torch.abs(self.root), min=1e-10))
 
 
@@ -274,13 +266,10 @@ def main(argv):
 
     diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
 
-    # D = 4 * order - 1
-    # integration_domain = [[0, 1]] * D
-    # map = vegas.AdaptiveMap(integration_domain, ninc=1000)
-    # x = np.random.uniform(0.0, 1.0, (batch_size, D))
-    # map.adapt_to_samples(x, diagram.prob(x), nitn=10)
-
     nfm = generate_model(diagram, num_hidden_channels=32, num_bins=8)
+    for name, param in nfm.named_parameters():
+        if param.requires_grad:
+            print(name, param.data.shape)
     epochs = 100
     blocks = 400
 
@@ -301,6 +290,15 @@ def main(argv):
         print(stat)
 
     train_model(nfm, epochs, diagram.batchsize)
+
+    plt.figure(figsize=(15, 12))
+    num_bins = 25
+    for ndim in range(diagram.ndims):
+        histr, bins = nfm.histogram(ndim, num_bins, has_weight=True)
+        plt.stairs(histr.numpy(), bins.numpy(), label="{0} Dim".format(ndim))
+    plt.legend()
+    plt.savefig("histogram_o{0}_beta{1}.png".format(order, beta))
+
     with torch.no_grad():
         mean, err = nfm.integrate_block(blocks)
     # nfm.train()
