@@ -192,7 +192,7 @@ def main(argv):
 
     nfm.eval()
     # mean, err = nfm.integrate_block(block_samples, blocks)
-    mean, err = nfm.integrate_block(blocks)
+    mean, err, _, _, _ = nfm.integrate_block(blocks)
 
     log_prob = nfm.p.log_prob(zz).to("cpu").view(*xx.shape)
     prob = nfm.p.prob(zz).to("cpu").view(*xx.shape)
@@ -207,17 +207,17 @@ def main(argv):
     prob_q = torch.exp(log_q)
     prob_q[torch.isnan(prob_q)] = 0
 
-    plt.figure(figsize=(15, 15))
-    plt.pcolormesh(xx, yy, prob.data.numpy())
-    plt.gca().set_aspect("equal", "box")
-    plt.title("original distribution")
-    plt.show()
+    # plt.figure(figsize=(15, 15))
+    # plt.pcolormesh(xx, yy, prob.data.numpy())
+    # plt.gca().set_aspect("equal", "box")
+    # plt.title("original distribution")
+    # plt.show()
 
-    plt.figure(figsize=(15, 15))
-    plt.pcolormesh(xx, yy, prob_q.data.numpy())
-    plt.gca().set_aspect("equal", "box")
-    plt.title("learned distribution")
-    plt.show()
+    # plt.figure(figsize=(15, 15))
+    # plt.pcolormesh(xx, yy, prob_q.data.numpy())
+    # plt.gca().set_aspect("equal", "box")
+    # plt.title("learned distribution")
+    # plt.show()
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
             blocks * block_samples, mean, err, nfm.p.targetval
@@ -238,18 +238,21 @@ def main(argv):
     print(prob)
     print(log_prob, log_q)
 
+    # mean, err = nfm.integrate_block(blocks)
     num_bins = 25
-    histr1, bins = nfm.histogram(0, num_bins, has_weight=True)
-    histr2, bins = nfm.histogram(1, num_bins, has_weight=True)
+    mean, err, bins, histr, histr_weight = nfm.integrate_block(blocks, num_bins)
+
+    print(bins)
+    torch.save(histr, "histogram.pt")
+    torch.save(histr_weight, "histogramWeight.pt")
     plt.figure(figsize=(15, 15))
-    plt.stairs(histr1.numpy(), bins.numpy(), label="0 Dim")
-    plt.stairs(histr2.numpy(), bins.numpy(), label="1 Dim")
+    plt.stairs(histr[:, 0].numpy(), bins.numpy(), label="0 Dim")
+    plt.stairs(histr[:, 1].numpy(), bins.numpy(), label="1 Dim")
     plt.title("Histogram of learned distribution")
     plt.legend()
     plt.savefig("histogram.png")
     plt.show()
 
-    mean, err = nfm.integrate_block(blocks)
     nfm.train()
 
     prob = torch.exp(log_q)

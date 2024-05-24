@@ -251,12 +251,21 @@ class NormalizingFlow(nn.Module):
         return torch.mean(func / q, dim=0)
 
     @torch.no_grad()
-    def integrate_block(self, num_blocks):
+    def integrate_block(self, num_blocks, bins=25, hist_range=(0.0, 1.0)):
         print("Estimating integral from trained network")
 
         num_samples = self.p.batchsize
-        # Pre-allocate tensor for storing means
+        num_vars = self.p.ndims
+        # Pre-allocate tensor for storing means and histograms
         means_t = torch.zeros(num_blocks)
+        with torch.device("cpu"):
+            if isinstance(bins, int):
+                histr = torch.zeros(bins, num_vars)
+                histr_weight = torch.zeros(bins, num_vars)
+            else:
+                histr = torch.zeros(bins.shape[0], num_vars)
+                histr_weight = torch.zeros(bins.shape[0], num_vars)
+
         # Loop to fill the tensor with mean values
         for i in range(num_blocks):
             self.p.samples, self.p.log_q = self.q0(num_samples)
@@ -265,12 +274,35 @@ class NormalizingFlow(nn.Module):
                 self.p.log_q -= self.p.log_det
             self.p.log_q = torch.exp(self.p.log_q)
             self.p.var = self.p.prob(self.p.samples)
-            means_t[i] = torch.mean(self.p.var / self.p.log_q, dim=0)
+            res = self.p.var / self.p.log_q
+            means_t[i] = torch.mean(res, dim=0)
+
+            z = self.p.samples.detach().cpu()
+            weights = res.detach().cpu()
+            for d in range(num_vars):
+                hist, bin_edges = torch.histogram(
+                    z[:, d], bins=bins, range=hist_range, density=True
+                )
+                histr[:, d] += hist
+                hist, bin_edges = torch.histogram(
+                    z[:, d],
+                    bins=bins,
+                    range=hist_range,
+                    weight=weights,
+                    density=True,
+                )
+                histr_weight[:, d] += hist
         # Compute mean and standard deviation directly on the tensor
         mean_combined = torch.mean(means_t)
         std_combined = torch.std(means_t) / num_blocks**0.5
 
-        return mean_combined, std_combined
+        return (
+            mean_combined,
+            std_combined,
+            bin_edges,
+            histr / num_blocks,
+            histr_weight / num_blocks,
+        )
 
     @torch.no_grad()
     def histogram(self, extvar_dim, bins, range=(0.0, 1.0), has_weight=True):
@@ -280,11 +312,15 @@ class NormalizingFlow(nn.Module):
           extvar_dim: Dimension of variable to plot histogram for
           bins: int or 1D Tensor. If int, defines the number of equal-width bins. If tensor, defines the sequence of bin edges including the rightmost edge.
           range: Range of the bins.
+          has_weight: Flag whether to use weights for histogram. If True, weights are proportional to the probability of each sample. If False, weights are all equal.
         """
         num_samples = self.p.batchsize
         z, log_q = self.sample(num_samples)
         q = torch.exp(log_q)
         weights = self.p.prob(z) / q
+
+        z = self.p.samples.detach().cpu()
+        weights = weights.detach().cpu()
 
         if has_weight:
             histr, bins = torch.histogram(

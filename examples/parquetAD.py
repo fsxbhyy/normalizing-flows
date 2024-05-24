@@ -210,8 +210,8 @@ class FeynmanDiagram(nf.distributions.Target):
         # self.leafvalues[self.isbose] = self.leaf_bose[self.isbose]
         # print("After update:", self.leafvalues)
         # exit(-1)
-        self.leafvalues[:] = torch.where(self.isfermi, self.leaf_fermi, self.leafvalues)
-        self.leafvalues[:] = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
+        self.leafvalues = torch.where(self.isfermi, self.leaf_fermi, self.leafvalues)
+        self.leafvalues = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
 
     @torch.no_grad()
     def prob(self, var):
@@ -276,7 +276,7 @@ def main(argv):
     # torch.cuda.memory._record_memory_history()
     tracemalloc.start()
     with torch.no_grad():
-        mean, err = nfm.integrate_block(blocks)
+        mean, err, _, _, _ = nfm.integrate_block(blocks)
 
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -291,16 +291,21 @@ def main(argv):
 
     train_model(nfm, epochs, diagram.batchsize)
 
-    plt.figure(figsize=(15, 12))
     num_bins = 25
+    with torch.no_grad():
+        mean, err, bins, histr, histr_weight = nfm.integrate_block(blocks, num_bins)
+
+    print(bins)
+    torch.save(histr, "histogram_o{0}_beta{1}.pt".format(order, beta))
+    torch.save(histr_weight, "histogramWeight_o{0}_beta{1}.pt".format(order, beta))
+
+    plt.figure(figsize=(15, 12))
     for ndim in range(diagram.ndims):
-        histr, bins = nfm.histogram(ndim, num_bins, has_weight=True)
-        plt.stairs(histr.numpy(), bins.numpy(), label="{0} Dim".format(ndim))
+        plt.stairs(
+            histr_weight[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim)
+        )
     plt.legend()
     plt.savefig("histogram_o{0}_beta{1}.png".format(order, beta))
-
-    with torch.no_grad():
-        mean, err = nfm.integrate_block(blocks)
     # nfm.train()
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
