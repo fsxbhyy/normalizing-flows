@@ -17,8 +17,7 @@ torch.set_printoptions(precision=10)  # Set displayed output precision to 10 dig
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 3
-# dim = 4 * order - 1
-dim = 2
+dim = 4 * order - 1
 beta = 10.0
 solution = 0.2773  # order 2
 # solution = -0.03115 # order 3
@@ -46,12 +45,11 @@ diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batchsi
 
 @vegas.batchintegrand
 def func(x):
-    return torch.Tensor.numpy(diagram.prob(x))
+    return torch.Tensor.numpy(diagram.prob(torch.Tensor(x)))
 
 
 @vegas.batchintegrand
 def func0(x):
-    # print(x.shape)
     return -(x[:, 0] ** 2) - x[:, 1] ** 2 + x[:, 0] + x[:, 1]
 
 
@@ -59,8 +57,7 @@ def func0(x):
 integration_domain = [[0, 1]] * dim
 
 # N_intervals = max(2, batchsize // (niters + 5) // 10)
-# m = vegas.AdaptiveMap(integration_domain, ninc=1000)
-m = vegas.AdaptiveMap(integration_domain, ninc=10)
+m = vegas.AdaptiveMap(integration_domain, ninc=1000)
 # m = vegas.AdaptiveMap(integration_domain, ninc=N_intervals)
 print("intial grid:")
 print(m.settings())
@@ -68,11 +65,10 @@ print(m.settings())
 y = np.random.uniform(0.0, 1.0, (batchsize, dim))
 # y = np.array(y, dtype=float)
 
-m.adapt_to_samples(y, func0(y), nitn=niters)
-# m.adapt_to_samples(y, func(y), nitn=10)
+# m.adapt_to_samples(y, func0(y), nitn=niters)
+m.adapt_to_samples(y, func(y), nitn=niters)
 print(m.settings())
 # m.show_grid()
-print(np.array(m.extract_grid()).shape)
 # m.show_grid(axes=[(2, 3)])
 
 y = np.random.uniform(0.0, 1.0, (batchsize, dim))
@@ -93,11 +89,11 @@ fy = torch.Tensor(jac) * fx
 print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 
 
-# map_torch = VegasMap(func, dim, integration_domain, batchsize)
-map_torch = VegasMap(m, dim, integration_domain, batchsize)
+map_torch = VegasMap(func, dim, integration_domain, batchsize)
+# map_torch = VegasMap(m, dim, integration_domain, batchsize)
 
 x, jac = map_torch(torch.Tensor(y))
-fx = func(x.numpy())
+fx = func(x)
 fy = jac * fx
 print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 # y = torch.Tensor(y)
@@ -124,7 +120,7 @@ def g(y):
 
 def g_torch(y):
     x, jac = map_torch.forward(torch.Tensor(y))
-    return jac.numpy() * func(x.numpy())
+    return jac.numpy() * func(x)
 
 
 def block_results(data, nblocks=100):
@@ -153,15 +149,24 @@ print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 
 # with Vegas map (torch)
 start_time = time.time()
-data = []
-for i in range(nblocks):
-    data.append(smc(g_torch, batchsize, dim)[0])
-data = np.array(data)
-r = (np.average(data), np.std(data) / nblocks**0.5)
-print("   SMC + map (torch):", f"{r[0]:.6f} +- {r[1]:.6f}")
+mean, std, bins, hist, hist_weight = map_torch.integrate_block(nblocks)
+print("   Vegas map (torch):", f"{mean:.6f} +- {std:.6f}")
 end_time = time.time()
 wall_clock_time = end_time - start_time
 print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
+print(bins)
+torch.save(hist, "histogramVegas_o{0}_beta{1}.pt".format(order, beta))
+torch.save(hist_weight, "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta))
+
+# data = []
+# for i in range(nblocks):
+#     data.append(smc(g_torch, batchsize, dim)[0])
+# data = np.array(data)
+# r = (np.average(data), np.std(data) / nblocks**0.5)
+# print("   SMC + map (torch):", f"{r[0]:.6f} +- {r[1]:.6f}")
+# end_time = time.time()
+# wall_clock_time = end_time - start_time
+# print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 
 # without map
 start_time = time.time()
@@ -170,7 +175,7 @@ for i in range(nblocks):
     data.append(smc(func, batchsize, dim)[0])
 data = np.array(data)
 r = (np.average(data), np.std(data) / nblocks**0.5)
-print("SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
+print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
 end_time = time.time()
 wall_clock_time = end_time - start_time
 print(f"Wall-clock time: {wall_clock_time:.3f} seconds")

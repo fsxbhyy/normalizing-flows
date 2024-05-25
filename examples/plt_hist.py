@@ -1,0 +1,81 @@
+import os
+import pandas as pd
+import numpy as np
+import torch
+import re
+
+import scienceplots
+import matplotlib as mat
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+cdict = {
+    "blue": "#0077BB",
+    "cyan": "#33BBEE",
+    "teal": "#009988",
+    "orange": "#EE7733",
+    "red": "#CC3311",
+    "magenta": "#EE3377",
+    "grey": "#BBBBBB",
+}
+plt.switch_backend("TkAgg")
+plt.style.use(["science", "std-colors"])
+mat.rcParams["font.size"] = 16
+mat.rcParams["mathtext.fontset"] = "cm"
+mat.rcParams["font.family"] = "Times New Roman"
+# size = 36
+# sizein = 12
+
+colors = [
+    cdict["blue"],
+    cdict["red"],
+    cdict["orange"],
+    cdict["magenta"],
+    cdict["cyan"],
+    "black",
+    cdict["teal"],
+    "grey",
+]
+pts = ["s", "^", "v", "p", "s", "o", "d"]
+
+
+def plot_hist(
+    order, beta, dims=[0, 1], has_weight=True, num_bins=25, xlabel="variable"
+):
+    # fig, ax = plt.subplots(figsize=(5, 5))
+    plt.figure(figsize=(8, 7))
+    if has_weight:
+        hist = torch.load("histogramWeight_o{0}_beta{1}.pt".format(order, beta)).numpy()
+        figname = "histogramWeight_o{0}_beta{1}".format(order, beta) + xlabel + ".pdf"
+        plt.ylabel("weighted density distribution")
+    else:
+        hist = torch.load("histogram_o{0}_beta{1}.pt".format(order, beta)).numpy()
+        figname = "histogram_o{0}_beta{1}".format(order, beta) + xlabel + ".pdf"
+        plt.ylabel("density distribution")
+
+    bins = np.linspace(0, 1, num_bins + 1)
+
+    for d in dims:
+        plt.stairs(hist[:, d], bins, label="{0} Dim".format(d))
+    if xlabel == "rescaled_p":
+        plt.xlabel(r"rescaled $p$")
+    elif xlabel == "tau":
+        plt.xlabel(r"$\tau$")
+    elif xlabel == "theta":
+        plt.xlabel(r"$\theta/\pi$")
+    elif xlabel == "phi":
+        plt.xlabel(r"$\phi/2\pi$")
+    # plt.title("Histogram of learned distribution")
+    plt.legend(loc="best", fontsize=14)
+    plt.savefig(figname)
+
+
+if __name__ == "__main__":
+    plot_hist(3, 10.0, [0, 1], True, xlabel="tau")
+    plot_hist(3, 10.0, [0, 1], False, xlabel="tau")
+    plot_hist(3, 10.0, [2, 3, 4], True, xlabel="rescaled_p")
+    plot_hist(3, 10.0, [2, 3, 4], False, xlabel="rescaled_p")
+    plot_hist(3, 10.0, [5, 6, 7], True, xlabel="theta")
+    plot_hist(3, 10.0, [5, 6, 7], False, xlabel="theta")
+    plot_hist(3, 10.0, [8, 9, 10], True, xlabel="phi")
+    plot_hist(3, 10.0, [8, 9, 10], False, xlabel="phi")

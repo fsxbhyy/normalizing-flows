@@ -30,17 +30,10 @@ class VegasMap(torch.nn.Module):
         self.register_buffer("x", torch.empty_like(self.y))
         self.register_buffer("jac", torch.ones(batchsize))
 
+        self.func = func
+
     @torch.no_grad()
     def forward(self, y):
-        # y0 = y.detach().numpy()
-        # y0 = np.array(y0, dtype=np.float64)
-        # x = np.empty(y.shape, float)
-        # jac = np.empty(y.shape[0], float)
-        # self.vegas_map.map(y0, x, jac)
-
-        # print("torch init:", x)
-        # print(jac)
-
         y_ninc = y * self.ninc
         iy = torch.floor(y_ninc).long()
         dy_ninc = y_ninc - iy
@@ -66,8 +59,8 @@ class VegasMap(torch.nn.Module):
                 # self.jac[mask_inv] *= self.inc[self.ninc - 1, d] * self.ninc
                 self.jac[mask_inv] *= self.inc[d, self.ninc - 1] * self.ninc
 
-        return self.x, torch.log(self.jac)
-        # return self.x, self.jac
+        # return self.x, torch.log(self.jac)
+        return self.x, self.jac
 
     @torch.no_grad()
     def inverse(self, x):
@@ -104,5 +97,60 @@ class VegasMap(torch.nn.Module):
                 self.jac[mask_upper] *= self.inc[d, self.ninc - 1] * self.ninc
                 # self.jac[mask_upper] *= self.inc[self.ninc - 1, d] * self.ninc
 
-        return self.y, torch.log(1 / self.jac)
-        # return self.y, self.jac
+        # return self.y, torch.log(1 / self.jac)
+        return self.y, self.jac
+
+    @torch.no_grad()
+    def integrate_block(self, num_blocks, bins=25, hist_range=(0.0, 1.0)):
+        print("Estimating integral from trained network")
+
+        num_samples = self.y.shape[0]
+        num_vars = self.y.shape[1]
+        # Pre-allocate tensor for storing means and histograms
+        means_t = torch.zeros(num_blocks)
+        with torch.device("cpu"):
+            if isinstance(bins, int):
+                histr = torch.zeros(bins, num_vars)
+                histr_weight = torch.zeros(bins, num_vars)
+            else:
+                histr = torch.zeros(bins.shape[0], num_vars)
+                histr_weight = torch.zeros(bins.shape[0], num_vars)
+
+        # Loop to fill the tensor with mean values
+        for i in range(num_blocks):
+            self.y = torch.rand(num_samples, num_vars)
+            self.x, self.jac = self.forward(self.y)
+            # for flow in self.flows:
+            #     self.p.samples, self.p.log_det = flow(self.p.samples)
+            #     self.p.log_q -= self.p.log_det
+            # self.p.log_q = torch.exp(self.p.log_q)
+            # self.p.var = self.p.prob(self.p.samples)
+            res = torch.Tensor(self.func(self.x)) * self.jac
+            means_t[i] = torch.mean(res, dim=0)
+
+            z = self.x.detach().cpu()
+            weights = res.detach().cpu()
+            for d in range(num_vars):
+                hist, bin_edges = torch.histogram(
+                    z[:, d], bins=bins, range=hist_range, density=True
+                )
+                histr[:, d] += hist
+                hist, bin_edges = torch.histogram(
+                    z[:, d],
+                    bins=bins,
+                    range=hist_range,
+                    weight=weights,
+                    density=True,
+                )
+                histr_weight[:, d] += hist
+        # Compute mean and standard deviation directly on the tensor
+        mean_combined = torch.mean(means_t)
+        std_combined = torch.std(means_t) / num_blocks**0.5
+
+        return (
+            mean_combined,
+            std_combined,
+            bin_edges,
+            histr / num_blocks,
+            histr_weight / num_blocks,
+        )
