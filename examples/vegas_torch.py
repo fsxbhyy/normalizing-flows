@@ -19,7 +19,6 @@ class VegasMap(torch.nn.Module):
 
         vegas_map = AdaptiveMap(integration_region, ninc=num_increments)
         y = np.random.uniform(0.0, 1.0, (batchsize, num_input_channels))
-        # y = torch.rand(batchsize, num_input_channels, dtype=torch.float64)
         vegas_map.adapt_to_samples(y, func(y), nitn=niters)
 
         self.register_buffer("y", torch.Tensor(y))
@@ -120,6 +119,7 @@ class VegasMap(torch.nn.Module):
         for i in range(num_blocks):
             self.y = torch.rand(num_samples, num_vars)
             self.x, self.jac = self.forward(self.y)
+
             # for flow in self.flows:
             #     self.p.samples, self.p.log_det = flow(self.p.samples)
             #     self.p.log_q -= self.p.log_det

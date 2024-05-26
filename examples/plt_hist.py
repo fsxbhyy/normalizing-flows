@@ -45,12 +45,16 @@ def plot_hist(
     # fig, ax = plt.subplots(figsize=(5, 5))
     plt.figure(figsize=(8, 7))
     if has_weight:
-        hist = torch.load("histogramWeight_o{0}_beta{1}.pt".format(order, beta)).numpy()
-        figname = "histogramWeight_o{0}_beta{1}".format(order, beta) + xlabel + ".pdf"
+        hist = torch.load(
+            "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta)
+        ).numpy()
+        figname = (
+            "histogramWeightVegas_o{0}_beta{1}".format(order, beta) + xlabel + ".pdf"
+        )
         plt.ylabel("weighted density distribution")
     else:
-        hist = torch.load("histogram_o{0}_beta{1}.pt".format(order, beta)).numpy()
-        figname = "histogram_o{0}_beta{1}".format(order, beta) + xlabel + ".pdf"
+        hist = torch.load("histogramVegas_o{0}_beta{1}.pt".format(order, beta)).numpy()
+        figname = "histogramVegas_o{0}_beta{1}".format(order, beta) + xlabel + ".pdf"
         plt.ylabel("density distribution")
 
     bins = np.linspace(0, 1, num_bins + 1)

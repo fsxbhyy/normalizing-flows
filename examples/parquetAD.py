@@ -166,13 +166,14 @@ class FeynmanDiagram(nf.distributions.Target):
         # print("factor:", self.factor)
         # p_rescale /= (1.0 + 1e-10 - p_rescale)
 
-        p_rescale *= self.maxK
-        self.factor[:] = torch.prod(p_rescale**2 * torch.sin(theta), dim=1)
-        self.p[:, 0, 1:] = p_rescale * torch.sin(theta)
+        self.factor[:] = torch.prod(
+            (p_rescale * self.maxK) ** 2 * torch.sin(theta), dim=1
+        )
+        self.p[:, 0, 1:] = p_rescale * self.maxK * torch.sin(theta)
         self.p[:, 1, 1:] = self.p[:, 0, 1:]
         self.p[:, 0, 1:] *= torch.cos(phi)
         self.p[:, 1, 1:] *= torch.sin(phi)
-        self.p[:, 2, 1:] = p_rescale * torch.cos(theta)
+        self.p[:, 2, 1:] = p_rescale * self.maxK * torch.cos(theta)
 
     @torch.no_grad()
     def _evalleaf(self, var):
