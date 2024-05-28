@@ -18,8 +18,8 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 # include(os.path.join(root_dir, f"func_sigma_o100.py"))
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 3
-beta = 10.0
+order = 1
+beta = 1.0
 batch_size = 100000
 
 
@@ -218,8 +218,9 @@ class FeynmanDiagram(nf.distributions.Target):
     def prob(self, var):
         self._evalleaf(var)
         self.root[:] = (
+            func_sigma_o100.graphfunc(self.leafvalues)
             # torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
-            torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
+            # torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
             * self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
             * (self.beta) ** (self.totalTauNum - 1)
@@ -267,12 +268,13 @@ def main(argv):
 
     diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
 
-    nfm = generate_model(diagram, num_hidden_channels=32, num_bins=8)
+    # nfm = generate_model(diagram, num_hidden_channels=32, num_bins=8)
+    nfm = generate_model(diagram, hidden_layers=1, num_hidden_channels=32, num_bins=8)
     for name, param in nfm.named_parameters():
         if param.requires_grad:
             print(name, param.data.shape)
-    epochs = 100
-    blocks = 400
+    epochs = 400
+    blocks = 100
 
     # torch.cuda.memory._record_memory_history()
     tracemalloc.start()
@@ -298,15 +300,16 @@ def main(argv):
 
     print(bins)
     torch.save(histr, "histogram_o{0}_beta{1}.pt".format(order, beta))
-    torch.save(histr_weight, "histogramWeight_o{0}_beta{1}.pt".format(order, beta))
+    torch.save(
+        histr_weight,
+        "histogramWeight_o{0}_beta{1}.pt".format(order, beta),
+    )
 
     plt.figure(figsize=(15, 12))
     for ndim in range(diagram.ndims):
-        plt.stairs(
-            histr_weight[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim)
-        )
+        plt.stairs(histr[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim))
     plt.legend()
-    plt.savefig("histogram_o{0}_beta{1}.png".format(order, beta))
+    plt.savefig("histogram_o{0}_beta{1}_ReduceLR.png".format(order, beta))
     # nfm.train()
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(

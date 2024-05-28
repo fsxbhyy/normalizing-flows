@@ -618,6 +618,9 @@ class PiecewiseRationalQuadraticCoupling(PiecewiseCoupling):
             spline_fn = splines.unconstrained_rational_quadratic_spline
             spline_kwargs = {"tails": self.tails, "tail_bound": self.tail_bound}
 
+        # print("width:", unnormalized_widths)
+        # print("height:", unnormalized_heights)
+        # print("derivatives:", unnormalized_derivatives)
         return spline_fn(
             inputs=inputs,
             unnormalized_widths=unnormalized_widths,

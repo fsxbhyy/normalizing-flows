@@ -148,7 +148,7 @@ class CoupledRationalQuadraticSpline(Flow):
         super().__init__()
 
         def transform_net_create_fn(in_features, out_features):
-            # net = ResidualNet(
+            # net = Dense(
             net = ResidualNet(
                 in_features=in_features,
                 out_features=out_features,
@@ -180,6 +180,7 @@ class CoupledRationalQuadraticSpline(Flow):
             tail_bound=tail_bound,
             # Setting True corresponds to equations (4), (5), (6) in the NSF paper:
             apply_unconditional_transform=True,
+            # min_bin_height=1e-6,
         )
 
     def forward(self, z, context=None):

@@ -16,15 +16,13 @@ enable_cuda = True
 device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
 
 FLAGS = flags.FLAGS
-# flags.DEFINE_string("function", "Gauss", "The function to integrate", short_name="f")
 flags.DEFINE_string(
     "function",
-    "Polynomial",
+    "Gauss",
     "The function to integrate",
     short_name="f",
-    # "function", "Polynomial", "The function to integrate", short_name="f"
 )
-flags.DEFINE_float("alpha", 0.1, "The width of the Gaussians", short_name="a")
+flags.DEFINE_float("alpha", 0.05, "The width of the Gaussians", short_name="a")
 flags.DEFINE_integer(
     "ndims", 2, "The number of dimensions for the integral", short_name="d"
 )
@@ -61,8 +59,9 @@ def generate_model(
     else:
         flows = []
 
-    masks = nf.utils.iflow_binary_masks(num_input_channels)
-    # print(masks)
+    masks = nf.utils.iflow_binary_masks(num_input_channels)  # mask0
+    # masks = [torch.ones(num_input_channels)]
+    print(masks)
     for mask in masks[::-1]:
         flows += [
             nf.flows.CoupledRationalQuadraticSpline(
@@ -107,11 +106,19 @@ def train_model(nfm, max_iter=1000, num_samples=10000):
     loss_hist = np.array([])
 
     print("before training \n")
-    # print(nfm.flows[0].pvct.grid)
-    # print(nfm.flows[0].pvct.inc)
 
-    optimizer = torch.optim.Adam(nfm.parameters(), lr=1e-3)  # , weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
+    # Initialize optimizer and scheduler
+    optimizer = torch.optim.Adam(nfm.parameters(), lr=4e-3)  # , weight_decay=1e-5)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=10, verbose=True
+    )
+
+    # Use a learning rate warmup
+    warmup_epochs = 10
+    scheduler_warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.1, total_iters=warmup_epochs
+    )
 
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
@@ -133,12 +140,25 @@ def train_model(nfm, max_iter=1000, num_samples=10000):
         # Do backprop and optimizer step
         if ~(torch.isnan(loss) | torch.isinf(loss)):
             loss.backward()
-            torch.nn.utils.clip_grad_value_(nfm.parameters(), clip)
+            # torch.nn.utils.clip_grad_value_(nfm.parameters(), clip)
+            torch.nn.utils.clip_grad_norm_(
+                nfm.parameters(), max_norm=1.0
+            )  # Gradient clipping
             optimizer.step()
+            # Scheduler step after optimizer step
+            if it < warmup_epochs:
+                scheduler_warmup.step()
+            else:
+                scheduler.step(loss)  # ReduceLROnPlateau
+                # scheduler.step()  # CosineAnnealingLR
 
-        # Log loss
-        loss_hist = np.append(loss_hist, loss.to("cpu").data.numpy())
-        scheduler.step()
+            # Log loss
+            loss_hist = np.append(loss_hist, loss.item())
+
+            if it % 10 == 0:
+                print(
+                    f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}"
+                )
 
     print("after training \n")
     # print(nfm.flows[0].pvct.grid)
@@ -167,6 +187,8 @@ def main(argv):
         target = benchmark.Tight(block_samples)
     elif FLAGS.function == "Polynomial":
         target = benchmark.Polynomial(block_samples)
+    else:
+        raise ValueError("Invalid function name")
     q0 = nf.distributions.base.Uniform(ndims, 0.0, 1.0)
     # nfm = generate_model(target, q0)
     nfm = generate_model(
@@ -174,12 +196,12 @@ def main(argv):
         q0,
         # has_VegasLayer=True,
         has_VegasLayer=False,
-        hidden_layers=2,
+        hidden_layers=1,
         num_hidden_channels=32,
         num_bins=8,
     )
 
-    blocks = 10
+    blocks = 100
     block_samples = 10000
 
     # Plot initial flow distribution
@@ -196,7 +218,7 @@ def main(argv):
 
     log_prob = nfm.p.log_prob(zz).to("cpu").view(*xx.shape)
     prob = nfm.p.prob(zz).to("cpu").view(*xx.shape)
-    print(prob, log_prob)
+    # print(prob, log_prob)
     log_q = nfm.log_prob(zz).to("cpu").view(*xx.shape)
     # log_prob = log_prob - log_q
 
@@ -235,22 +257,19 @@ def main(argv):
     log_prob = nfm.p.log_prob(zz).to("cpu").view(*xx.shape)
     prob = nfm.p.prob(zz).to("cpu").view(*xx.shape)
     log_q = nfm.log_prob(zz).to("cpu").view(*xx.shape)
-    print(prob)
-    print(log_prob, log_q)
 
     # mean, err = nfm.integrate_block(blocks)
     num_bins = 25
     mean, err, bins, histr, histr_weight = nfm.integrate_block(blocks, num_bins)
 
     print(bins)
-    torch.save(histr, "histogram.pt")
-    torch.save(histr_weight, "histogramWeight.pt")
+    # torch.save(histr, "histogram.pt")
+    # torch.save(histr_weight, "histogramWeight.pt")
     plt.figure(figsize=(15, 15))
     plt.stairs(histr[:, 0].numpy(), bins.numpy(), label="0 Dim")
-    plt.stairs(histr[:, 1].numpy(), bins.numpy(), label="1 Dim")
     plt.title("Histogram of learned distribution")
     plt.legend()
-    plt.savefig("histogram.png")
+    plt.savefig("histogram_" + FLAGS.function + "_layer1h32_allmask_dense.png")
     plt.show()
 
     nfm.train()

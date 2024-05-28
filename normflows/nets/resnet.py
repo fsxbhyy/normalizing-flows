@@ -101,6 +101,7 @@ class ResidualNet(nn.Module):
         for block in self.blocks:
             temps = block(temps, context=context)
         outputs = self.final_layer(temps)
+
         return outputs
 
 

@@ -70,10 +70,7 @@ def unconstrained_rational_quadratic_spline(
         bottom = -tail_bound
         top = tail_bound
 
-    (
-        outputs_masked,
-        logabsdet_masked
-    ) = rational_quadratic_spline(
+    (outputs_masked, logabsdet_masked) = rational_quadratic_spline(
         inputs=inputs[inside_interval_mask],
         unnormalized_widths=unnormalized_widths[inside_interval_mask, :],
         unnormalized_heights=unnormalized_heights[inside_interval_mask, :],
@@ -87,7 +84,10 @@ def unconstrained_rational_quadratic_spline(
         min_bin_height=min_bin_height,
         min_derivative=min_derivative,
     )
-    if outputs.dtype == outputs_masked.dtype and logabsdet.dtype == logabsdet_masked.dtype:
+    if (
+        outputs.dtype == outputs_masked.dtype
+        and logabsdet.dtype == logabsdet_masked.dtype
+    ):
         outputs[inside_interval_mask] = outputs_masked
         logabsdet[inside_interval_mask] = logabsdet_masked
     else:
@@ -95,6 +95,7 @@ def unconstrained_rational_quadratic_spline(
         logabsdet[inside_interval_mask] = logabsdet_masked.to(logabsdet.dtype)
 
     return outputs, logabsdet
+
 
 def linear_spline(
     inputs,
@@ -104,9 +105,8 @@ def linear_spline(
     right=1.0,
     bottom=0.0,
     top=1.0,
-    min_bin_width=DEFAULT_MIN_BIN_WIDTH
+    min_bin_width=DEFAULT_MIN_BIN_WIDTH,
 ):
-
     num_bins = unnormalized_widths.shape[-1]
 
     if torch.is_tensor(left):
@@ -128,8 +128,8 @@ def linear_spline(
     cumwidths[..., 0] = left
     cumwidths[..., -1] = right
     widths = cumwidths[..., 1:] - cumwidths[..., :-1]
-    
-    heights = widths*0 + 1/num_bins
+
+    heights = widths * 0 + 1 / num_bins
     cumheights = torch.cumsum(heights, dim=-1)
     cumheights = F.pad(cumheights, pad=(1, 0), mode="constant", value=0.0)
     if lim_tensor:
@@ -156,15 +156,14 @@ def linear_spline(
     input_heights = heights.gather(-1, bin_idx)[..., 0]
 
     if inverse:
-        outputs = (inputs-input_cumheights) /input_delta + input_cumwidths
+        outputs = (inputs - input_cumheights) / input_delta + input_cumwidths
         logabsdet = torch.log(input_delta)
         return outputs, -logabsdet
     else:
-        outputs = input_delta * (inputs-input_cumwidths) + input_cumheights
+        outputs = input_delta * (inputs - input_cumwidths) + input_cumheights
 
         logabsdet = torch.log(input_delta)
         return outputs, logabsdet
-
 
 
 def rational_quadratic_spline(
@@ -181,7 +180,6 @@ def rational_quadratic_spline(
     min_bin_height=DEFAULT_MIN_BIN_HEIGHT,
     min_derivative=DEFAULT_MIN_DERIVATIVE,
 ):
-
     num_bins = unnormalized_widths.shape[-1]
 
     if torch.is_tensor(left):
@@ -198,7 +196,7 @@ def rational_quadratic_spline(
     widths = min_bin_width + (1 - min_bin_width * num_bins) * widths
     cumwidths = torch.cumsum(widths, dim=-1)
     cumwidths = F.pad(cumwidths, pad=(1, 0), mode="constant", value=0.0)
-    
+
     if lim_tensor:
         cumwidths = (right[..., None] - left[..., None]) * cumwidths + left[..., None]
     else:

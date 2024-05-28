@@ -40,7 +40,7 @@ for (_rs, _mass2, _F, _beta, _order) in Iterators.product(rs, mass2, Fs, beta, o
     #     push!(reweight_goal, reweight_factor)
     # end
     # push!(reweight_goal, 4.0)
-    partition = [(3, 0, 0)]
+    partition = [(1, 0, 0)]
     neighbor = [(1, 2)]
 
     # filename = mission == "Z" ? sigma_z_filename : sigma_k_filename
@@ -49,7 +49,7 @@ for (_rs, _mass2, _F, _beta, _order) in Iterators.product(rs, mass2, Fs, beta, o
         sigma, result = Sigma.MC_Clib(para; kgrid=kgrid, ngrid=ngrid,
             neval=neval, filename=filename, partition=partition, neighbor=neighbor,
             # reweight_goal=reweight_goal,
-            isLayered2D=isLayered2D, verbose=1)
+            isLayered2D=isLayered2D)
     else
         sigma, result = Sigma.MC(para; kgrid=kgrid, ngrid=ngrid, diag_generator=diagGenerate,
             neval=neval, filename=filename, partition=partition, neighbor=neighbor,

@@ -20,10 +20,11 @@ class Sharp(nf.distributions.Target):
 
 
 class Tight(nf.distributions.Target):
-    def __init__(self):
+    def __init__(self, batchsize):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
         self.ndims = 3
         self.targetval = 1.3932
+        self.batchsize = batchsize
 
     def prob(self, x):
         integrand = torch.prod(torch.cos(x * np.pi), axis=-1)
@@ -35,12 +36,13 @@ class Tight(nf.distributions.Target):
 
 
 class Gauss(nf.distributions.Target):
-    def __init__(self, ndims=2, alpha=0.2):
+    def __init__(self, batchsize, ndims=2, alpha=0.2):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
         self.ndims = ndims
         self.alpha = alpha
         self.log_const = -self.ndims * (np.log(self.alpha) + 0.5 * np.log(np.pi))
         self.targetval = erf(1 / (2.0 * self.alpha)) ** self.ndims
+        self.batchsize = batchsize
 
     def log_prob(self, x):
         return -1.0 * torch.sum((x - 0.5) ** 2 / self.alpha**2, -1) + self.log_const

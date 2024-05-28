@@ -16,7 +16,7 @@ torch.set_printoptions(precision=10)  # Set displayed output precision to 10 dig
 
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 3
+order = 1
 dim = 4 * order - 1
 beta = 10.0
 solution = 0.2773  # order 2
