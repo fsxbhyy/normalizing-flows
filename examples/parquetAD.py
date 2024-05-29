@@ -287,8 +287,10 @@ def main(argv):
     tracemalloc.start()
     start_time = time.time()
     with torch.no_grad():
-        mean, err, _, _, _ = nfm.integrate_block(blocks)
+        mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
+    loss = nfm.loss_block(10, partition_z)
+    print("Initial loss: ", loss)
 
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -308,10 +310,20 @@ def main(argv):
     start_time = time.time()
     num_hist_bins = 25
     with torch.no_grad():
-        mean, err, bins, histr, histr_weight = nfm.integrate_block(
+        mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
             blocks, num_hist_bins
         )
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
+
+    loss = nfm.loss_block(100, partition_z)
+    print("Final loss: ", loss)
+
+    # nfm.train()
+    print(
+        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
+            blocks * diagram.batchsize, mean, err, nfm.p.targetval
+        )
+    )
 
     print(bins)
     torch.save(
@@ -336,12 +348,19 @@ def main(argv):
             order, beta, hidden_layers, num_hidden_channels, num_bins
         )
     )
-    # nfm.train()
-    print(
-        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * diagram.batchsize, mean, err, nfm.p.targetval
+
+    plt.figure(figsize=(15, 12))
+    for ndim in range(diagram.ndims):
+        plt.stairs(
+            histr_weight[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim)
+        )
+    plt.legend()
+    plt.savefig(
+        "histogramWeight_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
+            order, beta, hidden_layers, num_hidden_channels, num_bins
         )
     )
+
     # torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
 
 

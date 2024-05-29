@@ -266,19 +266,23 @@ class NormalizingFlow(nn.Module):
                 histr = torch.zeros(bins.shape[0], num_vars)
                 histr_weight = torch.zeros(bins.shape[0], num_vars)
 
-        # Loop to fill the tensor with mean values
+        partition_z = torch.tensor(0.0)
         for i in range(num_blocks):
             self.p.samples, self.p.log_q = self.q0(num_samples)
             for flow in self.flows:
                 self.p.samples, self.p.log_det = flow(self.p.samples)
                 self.p.log_q -= self.p.log_det
-            self.p.log_q = torch.exp(self.p.log_q)
-            self.p.var = self.p.prob(self.p.samples)
-            res = self.p.var / self.p.log_q
+            self.p.val = self.p.prob(self.p.samples)
+            q = torch.exp(self.p.log_q)
+            res = self.p.val / q
             means_t[i] = torch.mean(res, dim=0)
 
+            partition_z += torch.mean(torch.abs(self.p.val) / q, dim=0)
+            # log_p = torch.log(torch.clamp(prob_abs, min=1e-16))
+            # loss += prob_abs / q / z * (log_p - self.p.log_q - torch.log(z))
+
             z = self.p.samples.detach().cpu()
-            weights = res.detach().cpu()
+            weights = (res / res.abs()).detach().cpu()
             for d in range(num_vars):
                 hist, bin_edges = torch.histogram(
                     z[:, d], bins=bins, range=hist_range, density=True
@@ -302,7 +306,30 @@ class NormalizingFlow(nn.Module):
             bin_edges,
             histr / num_blocks,
             histr_weight / num_blocks,
+            partition_z / num_blocks,
         )
+
+    @torch.no_grad()
+    def loss_block(self, num_blocks, partition_z=1.0):
+        num_samples = self.p.batchsize
+
+        loss = torch.tensor(0.0)
+        for i in range(num_blocks):
+            self.p.samples, self.p.log_q = self.q0(num_samples)
+            for flow in self.flows:
+                self.p.samples, self.p.log_det = flow(self.p.samples)
+                self.p.log_q -= self.p.log_det
+            self.p.val = self.p.prob(self.p.samples)
+
+            prob_abs = torch.abs(self.p.val)
+            log_p = torch.log(torch.clamp(prob_abs, min=1e-16))
+            loss += torch.mean(
+                prob_abs
+                / torch.exp(self.p.log_q)
+                / partition_z
+                * (log_p - self.p.log_q - torch.log(partition_z))
+            )
+        return loss / num_blocks
 
     @torch.no_grad()
     def histogram(self, extvar_dim, bins, range=(0.0, 1.0), has_weight=True):
@@ -316,8 +343,7 @@ class NormalizingFlow(nn.Module):
         """
         num_samples = self.p.batchsize
         z, log_q = self.sample(num_samples)
-        q = torch.exp(log_q)
-        weights = self.p.prob(z) / q
+        weights = self.p.prob(z) / torch.abs(self.p.prob(z))
 
         z = self.p.samples.detach().cpu()
         weights = weights.detach().cpu()
