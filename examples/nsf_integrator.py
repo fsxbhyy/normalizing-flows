@@ -97,7 +97,7 @@ def generate_model(
 #     print("\n")
 
 
-def train_model(nfm, max_iter=1000, num_samples=10000):
+def train_model(nfm, max_iter=1000, num_samples=10000, has_scheduler=True):
     # Train model
     # Move model on GPU if available
 
@@ -109,10 +109,11 @@ def train_model(nfm, max_iter=1000, num_samples=10000):
 
     # Initialize optimizer and scheduler
     optimizer = torch.optim.Adam(nfm.parameters(), lr=4e-3)  # , weight_decay=1e-5)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=10, verbose=True
-    )
+    if has_scheduler:
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.5, patience=10, verbose=True
+        )
 
     # Use a learning rate warmup
     warmup_epochs = 10
@@ -148,7 +149,7 @@ def train_model(nfm, max_iter=1000, num_samples=10000):
             # Scheduler step after optimizer step
             if it < warmup_epochs:
                 scheduler_warmup.step()
-            else:
+            elif has_scheduler:
                 scheduler.step(loss)  # ReduceLROnPlateau
                 # scheduler.step()  # CosineAnnealingLR
 

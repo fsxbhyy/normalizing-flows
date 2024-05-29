@@ -21,6 +21,9 @@ num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 1.0
 batch_size = 100000
+hidden_layers = 1
+num_hidden_channels = 32
+num_bins = 8
 
 
 def _StringtoIntVector(s):
@@ -268,8 +271,12 @@ def main(argv):
 
     diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
 
-    # nfm = generate_model(diagram, num_hidden_channels=32, num_bins=8)
-    nfm = generate_model(diagram, hidden_layers=1, num_hidden_channels=32, num_bins=8)
+    nfm = generate_model(
+        diagram,
+        hidden_layers=hidden_layers,
+        num_hidden_channels=num_hidden_channels,
+        num_bins=num_bins,
+    )
     for name, param in nfm.named_parameters():
         if param.requires_grad:
             print(name, param.data.shape)
@@ -294,22 +301,35 @@ def main(argv):
 
     train_model(nfm, epochs, diagram.batchsize)
 
-    num_bins = 25
+    num_hist_bins = 25
     with torch.no_grad():
-        mean, err, bins, histr, histr_weight = nfm.integrate_block(blocks, num_bins)
+        mean, err, bins, histr, histr_weight = nfm.integrate_block(
+            blocks, num_hist_bins
+        )
 
     print(bins)
-    torch.save(histr, "histogram_o{0}_beta{1}.pt".format(order, beta))
+    torch.save(
+        histr,
+        "histogram_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+            order, beta, hidden_layers, num_hidden_channels, num_bins
+        ),
+    )
     torch.save(
         histr_weight,
-        "histogramWeight_o{0}_beta{1}.pt".format(order, beta),
+        "histogramWeight_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+            order, beta, hidden_layers, num_hidden_channels, num_bins
+        ),
     )
 
     plt.figure(figsize=(15, 12))
     for ndim in range(diagram.ndims):
         plt.stairs(histr[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim))
     plt.legend()
-    plt.savefig("histogram_o{0}_beta{1}_ReduceLR.png".format(order, beta))
+    plt.savefig(
+        "histogram_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
+            order, beta, hidden_layers, num_hidden_channels, num_bins
+        )
+    )
     # nfm.train()
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
