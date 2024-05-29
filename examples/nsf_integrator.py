@@ -5,6 +5,7 @@ import normflows as nf
 import benchmark
 from scipy.special import erf, gamma
 import vegas
+import time
 
 from matplotlib import pyplot as plt
 from tqdm import tqdm
@@ -124,6 +125,8 @@ def train_model(nfm, max_iter=1000, num_samples=10000, has_scheduler=True):
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
     for it in tqdm(range(max_iter)):
+        start_time = time.time()
+
         optimizer.zero_grad()
 
         # Get training samples
@@ -158,7 +161,7 @@ def train_model(nfm, max_iter=1000, num_samples=10000, has_scheduler=True):
 
             if it % 10 == 0:
                 print(
-                    f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}"
+                    f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
                 )
 
     print("after training \n")
@@ -247,7 +250,9 @@ def main(argv):
         )
     )
 
+    start_time = time.time()
     loss_hist = train_model(nfm, epochs, nsamples)
+    print("Training time: {:.3f}s".format(time.time() - start_time))
 
     # plt.figure(figsize=(10, 10))
     # plt.plot(loss_hist + np.log(mean.detach().numpy()), label="loss")

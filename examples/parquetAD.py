@@ -6,7 +6,7 @@ import re
 import normflows as nf
 from nsf_integrator import generate_model, train_model
 from funcs_sigma import *
-import vegas
+import time
 
 from matplotlib import pyplot as plt
 import tracemalloc
@@ -285,8 +285,10 @@ def main(argv):
 
     # torch.cuda.memory._record_memory_history()
     tracemalloc.start()
+    start_time = time.time()
     with torch.no_grad():
         mean, err, _, _, _ = nfm.integrate_block(blocks)
+    print("Initial integration time: {:.3f}s".format(time.time() - start_time))
 
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -299,13 +301,17 @@ def main(argv):
     for stat in top_stats[:20]:
         print(stat)
 
+    start_time = time.time()
     train_model(nfm, epochs, diagram.batchsize)
+    print("Training time: {:.3f}s".format(time.time() - start_time))
 
+    start_time = time.time()
     num_hist_bins = 25
     with torch.no_grad():
         mean, err, bins, histr, histr_weight = nfm.integrate_block(
             blocks, num_hist_bins
         )
+    print("Final integration time: {:.3f}s".format(time.time() - start_time))
 
     print(bins)
     torch.save(
