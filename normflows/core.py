@@ -266,7 +266,7 @@ class NormalizingFlow(nn.Module):
                 histr = torch.zeros(bins.shape[0], num_vars)
                 histr_weight = torch.zeros(bins.shape[0], num_vars)
 
-        partition_z = torch.tensor(0.0)
+        partition_z = torch.tensor(0.0, device=self.p.samples.device)
         for i in range(num_blocks):
             self.p.samples, self.p.log_q = self.q0(num_samples)
             for flow in self.flows:
@@ -313,7 +313,7 @@ class NormalizingFlow(nn.Module):
     def loss_block(self, num_blocks, partition_z=1.0):
         num_samples = self.p.batchsize
 
-        loss = torch.tensor(0.0)
+        loss = torch.tensor(0.0, device=self.p.samples.device)
         for i in range(num_blocks):
             self.p.samples, self.p.log_q = self.q0(num_samples)
             for flow in self.flows:

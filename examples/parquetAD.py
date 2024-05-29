@@ -25,6 +25,9 @@ hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
+Nepochs = 400
+Nblocks = 100
+
 
 def _StringtoIntVector(s):
     pattern = r"[-+]?\d+"
@@ -280,8 +283,8 @@ def main(argv):
     for name, param in nfm.named_parameters():
         if param.requires_grad:
             print(name, param.data.shape)
-    epochs = 400
-    blocks = 100
+    epochs = Nepochs
+    blocks = Nblocks
 
     # torch.cuda.memory._record_memory_history()
     tracemalloc.start()
