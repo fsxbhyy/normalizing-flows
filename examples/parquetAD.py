@@ -25,8 +25,8 @@ hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
-Nepochs = 300
-Nblocks = 100
+Nepochs = 250
+Nblocks = 400
 
 
 def _StringtoIntVector(s):
@@ -239,6 +239,25 @@ class FeynmanDiagram(nf.distributions.Target):
         self.prob(var)
         return torch.log(torch.clamp(torch.abs(self.root), min=1e-10))
 
+    @torch.no_grad()
+    def sample(self, steps=10):
+        for i in range(steps):
+            proposed_samples = torch.rand(
+                self.batchsize, self.ndims, device=self.samples.device
+            )
+            acceptance_probs = torch.clamp(
+                torch.exp(
+                    self.log_prob(proposed_samples) - self.log_prob(self.samples)
+                ),
+                max=1,
+            )
+            accept = (
+                torch.rand(batch_size, device=self.samples.device) <= acceptance_probs
+            )
+            self.samples[accept] = proposed_samples[accept]
+
+        return self.samples
+
 
 def load_leaf_info(root_dir, name, key_str):
     df = pd.read_csv(os.path.join(root_dir, f"leafinfo_{name}_{key_str}.csv"))
@@ -325,7 +344,9 @@ def main(argv):
     )
 
     start_time = time.time()
-    mean_mcmc, err_mcmc = nfm.mcmc_integration(num_blocks=blocks, len_chain=blocks)
+    mean_mcmc, err_mcmc = nfm.mcmc_integration(
+        num_blocks=blocks, len_chain=blocks, thinning=4
+    )
     print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(

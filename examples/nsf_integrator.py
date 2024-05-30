@@ -137,6 +137,8 @@ def train_model(nfm, max_iter=1000, num_samples=10000, has_scheduler=True):
         #     if(it<max_iter/2):
         #         loss = nfm.reverse_kld(num_samples)
         #     else:
+
+        # loss = nfm.forward_kld_mc(num_samples)
         loss = nfm.IS_forward_kld(num_samples)
         # loss = nfm.reverse_kld(num_samples)
         # loss = nfm.MCvar(num_samples)

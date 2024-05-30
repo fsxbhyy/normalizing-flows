@@ -145,6 +145,16 @@ class NormalizingFlow(nn.Module):
         # utils.set_requires_grad(self, True)
         return torch.mean(ISratio.detach() * (logp.detach() - log_q))
 
+    def forward_kld_mc(self, steps=10):
+        z = self.p.sample(steps)
+
+        self.p.log_q.fill_(0.0)
+        for i in range(len(self.flows) - 1, -1, -1):
+            z, self.p.log_det = self.flows[i].inverse(z)
+            self.p.log_q += self.p.log_det
+        self.p.log_q += self.q0.log_prob(z)
+        return -torch.mean(self.p.log_q)
+
     def MCvar(self, num_samples=1):
         z, log_q_ = self.q0(num_samples)
         log_J = torch.zeros_like(log_q_)
@@ -381,33 +391,45 @@ class NormalizingFlow(nn.Module):
         """
         batch_size = self.p.batchsize
         device = self.p.samples.device
+        vars_shape = self.p.samples.shape
         if burn_in is None:
-            burn_in = len_chain // 10
+            burn_in = len_chain // 5
 
         # Initialize chain
-        self.p.samples, self.p.log_q = self.q0(batch_size)
-        for flow in self.flows:
-            self.p.samples, self.p.log_det = flow(self.p.samples)
-            self.p.log_q -= self.p.log_det
-        proposed_samples = torch.empty_like(self.p.samples, device=device)
+        # self.p.samples, self.p.log_q = self.q0(batch_size)
+        torch.rand(vars_shape, out=self.p.samples)
+        z = self.p.samples.clone().detach()
+        self.p.log_q.fill_(0.0)
+        for i in range(len(self.flows) - 1, -1, -1):
+            z[:], self.p.log_det[:] = self.flows[i].inverse(z)
+            self.p.log_q += self.p.log_det
+        # for flow in self.flows:
+        #     self.p.samples, self.p.log_det = flow(self.p.samples)
+        #     self.p.log_q -= self.p.log_det
+        proposed_samples = torch.empty(vars_shape, device=device)
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        ones_tensor = torch.ones(batch_size, dtype=torch.int8, device=device)
-
         for i in range(burn_in):
             # Propose new samples using the normalizing flow
-            proposed_samples, proposed_log_q = self.q0(batch_size)
-            for flow in self.flows:
-                proposed_samples, proposed_log_det = flow(proposed_samples)
-                proposed_log_q -= proposed_log_det
+            torch.rand(vars_shape, out=proposed_samples)
+            z[:] = proposed_samples
+            proposed_log_q.fill_(0.0)
+            for i in range(len(self.flows) - 1, -1, -1):
+                z, proposed_log_det = self.flows[i].inverse(z)
+                proposed_log_q += proposed_log_det
+            # proposed_samples, proposed_log_q = self.q0(batch_size)
+            # for flow in self.flows:
+            #     proposed_samples, proposed_log_det = flow(proposed_samples)
+            #     proposed_log_q -= proposed_log_det
 
             # Compute acceptance probabilities
-            acceptance_probs = torch.exp(proposed_log_q - self.p.log_q)
-            acceptance_probs = torch.min(ones_tensor, acceptance_probs)
+            acceptance_probs = torch.clamp(
+                torch.exp(proposed_log_q - self.p.log_q), max=1
+            )
 
             # Accept or reject the proposals
-            accept = torch.rand(batch_size, device=device) < acceptance_probs
+            accept = torch.rand(batch_size, device=device) <= acceptance_probs
             self.p.samples[accept] = proposed_samples[accept]
             self.p.log_q[accept] = proposed_log_q[accept]
 
@@ -416,17 +438,20 @@ class NormalizingFlow(nn.Module):
         num_measure = 0
         for i in range(len_chain):
             # Propose new samples using the normalizing flow
-            proposed_samples, proposed_log_q = self.q0(batch_size)
-            for flow in self.flows:
-                proposed_samples, proposed_log_det = flow(proposed_samples)
-                proposed_log_q -= proposed_log_det
+            torch.rand(vars_shape, out=proposed_samples)
+            z[:] = proposed_samples
+            proposed_log_q.fill_(0.0)
+            for i in range(len(self.flows) - 1, -1, -1):
+                z, proposed_log_det = self.flows[i].inverse(z)
+                proposed_log_q += proposed_log_det
 
             # Compute acceptance probabilities
-            acceptance_probs = torch.exp(proposed_log_q - self.p.log_q)
-            acceptance_probs = torch.min(ones_tensor, acceptance_probs)
+            acceptance_probs = torch.clamp(
+                torch.exp(proposed_log_q - self.p.log_q), max=1
+            )
 
             # Accept or reject the proposals
-            accept = torch.rand(batch_size, device=device) < acceptance_probs
+            accept = torch.rand(batch_size, device=device) <= acceptance_probs
             self.p.samples[accept] = proposed_samples[accept]
             self.p.log_q[accept] = proposed_log_q[accept]
 
