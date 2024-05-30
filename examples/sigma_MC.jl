@@ -3,7 +3,7 @@ using CompositeGrids
 
 dim = 3
 rs = [2.0]
-order = [3]  # maximum diagram order of the run
+order = [1]  # maximum diagram order of the run
 mass2 = [0.5]
 
 Fs = [-0.0]        # Fermi liquid parameter with zero angular momentum
@@ -40,7 +40,7 @@ for (_rs, _mass2, _F, _beta, _order) in Iterators.product(rs, mass2, Fs, beta, o
     #     push!(reweight_goal, reweight_factor)
     # end
     # push!(reweight_goal, 4.0)
-    partition = [(2, 0, 0)]
+    partition = [(_order, 0, 0)]
     neighbor = [(1, 2)]
 
     # filename = mission == "Z" ? sigma_z_filename : sigma_k_filename

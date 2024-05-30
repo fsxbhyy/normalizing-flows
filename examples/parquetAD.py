@@ -25,7 +25,7 @@ hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
-Nepochs = 200
+Nepochs = 300
 Nblocks = 100
 
 
@@ -310,6 +310,7 @@ def main(argv):
     train_model(nfm, epochs, diagram.batchsize)
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
+    print("Start computing integration...")
     start_time = time.time()
     num_hist_bins = 25
     with torch.no_grad():

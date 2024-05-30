@@ -364,7 +364,7 @@ class NormalizingFlow(nn.Module):
         self,
         num_blocks=100,
         len_chain=1000,
-        burn_in=10,
+        burn_in=None,
         thinning=1,
     ):
         """
@@ -381,6 +381,8 @@ class NormalizingFlow(nn.Module):
         """
         batch_size = self.p.batchsize
         device = self.p.samples.device
+        if burn_in is None:
+            burn_in = len_chain // 10
 
         # Initialize chain
         self.p.samples, self.p.log_q = self.q0(batch_size)
@@ -391,7 +393,7 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        ones_tensor = torch.ones(batch_size, dtype=torch.int8)
+        ones_tensor = torch.ones(batch_size, dtype=torch.int8, device=device)
 
         for i in range(burn_in):
             # Propose new samples using the normalizing flow
@@ -411,6 +413,7 @@ class NormalizingFlow(nn.Module):
 
         values = torch.zeros(num_blocks, device=device)
         block_size = batch_size // num_blocks
+        num_measure = 0
         for i in range(len_chain):
             # Propose new samples using the normalizing flow
             proposed_samples, proposed_log_q = self.q0(batch_size)
@@ -429,6 +432,7 @@ class NormalizingFlow(nn.Module):
 
             # Measurement
             if i % thinning == 0:
+                num_measure += 1
                 self.p.val = self.p.prob(self.p.samples)
                 for j in range(num_blocks):
                     start = j * block_size
@@ -436,7 +440,7 @@ class NormalizingFlow(nn.Module):
                     values[j] += torch.mean(
                         self.p.val[start:end] / torch.exp(self.p.log_q[start:end])
                     )
-
+        values /= num_measure
         mean = torch.mean(values)
         error = torch.std(values) / num_blocks**0.5
 
