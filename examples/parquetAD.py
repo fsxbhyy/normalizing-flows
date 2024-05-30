@@ -19,13 +19,13 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
-beta = 1.0
+beta = 10.0
 batch_size = 100000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
-Nepochs = 400
+Nepochs = 200
 Nblocks = 100
 
 
@@ -317,16 +317,23 @@ def main(argv):
             blocks, num_hist_bins
         )
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
-
-    loss = nfm.loss_block(100, partition_z)
-    print("Final loss: ", loss)
-
-    # nfm.train()
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
             blocks * diagram.batchsize, mean, err, nfm.p.targetval
         )
     )
+
+    start_time = time.time()
+    mean_mcmc, err_mcmc = nfm.mcmc_integration(num_blocks=blocks, len_chain=blocks)
+    print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
+    print(
+        "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
+            blocks * diagram.batchsize, mean_mcmc, err_mcmc, nfm.p.targetval
+        )
+    )
+
+    loss = nfm.loss_block(100, partition_z)
+    print("Final loss: ", loss)
 
     print(bins)
     torch.save(

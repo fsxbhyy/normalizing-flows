@@ -9,7 +9,7 @@ import matplotlib as mat
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
-order = 3
+order = 2
 beta = 10.0
 
 cdict = {
@@ -49,20 +49,20 @@ def plot_hist(
     plt.figure(figsize=(8, 7))
     if has_weight:
         hist = torch.load(
-            "histogramWeight_o{0}_beta{1}_layer1.pt".format(order, beta)
+            "histogramWeight_o{0}_beta{1}_l1c32b8.pt".format(order, beta)
             # "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta)
         ).numpy()
         figname = (
-            "histogramWeight_o{0}_beta{1}_layer1".format(order, beta) + xlabel + ".pdf"
+            "histogramWeight_o{0}_beta{1}_l1c32b8".format(order, beta) + xlabel + ".pdf"
             # "histogramWeightVegas_o{0}_beta{1}".format(order, beta) + xlabel + ".pdf"
         )
         plt.ylabel("weighted density distribution")
     else:
         hist = torch.load(
-            "histogram_o{0}_beta{1}_layer1.pt".format(order, beta)
+            "histogram_o{0}_beta{1}_l1c32b8.pt".format(order, beta)
         ).numpy()
         # hist = torch.load("histogramVegas_o{0}_beta{1}.pt".format(order, beta)).numpy()
-        figname = "histogram_o{0}_beta{1}_layer1".format(order, beta) + xlabel + ".pdf"
+        figname = "histogram_o{0}_beta{1}_l1c32b8".format(order, beta) + xlabel + ".pdf"
         # figname = "histogramVegas_o{0}_beta{1}".format(order, beta) + xlabel + ".pdf"
         plt.ylabel("density distribution")
 
@@ -88,11 +88,11 @@ if __name__ == "__main__":
     ind_p = np.arange(order - 1, 2 * order - 1)
     ind_theta = np.arange(2 * order - 1, 3 * order - 1)
     ind_phi = np.arange(3 * order - 1, 4 * order - 1)
-    # plot_hist(order, beta, ind_tau, True, xlabel="tau")
+    plot_hist(order, beta, ind_tau, True, xlabel="tau")
     plot_hist(order, beta, ind_tau, False, xlabel="tau")
-    # plot_hist(order, beta, ind_p, True, xlabel="rescaled_p")
+    plot_hist(order, beta, ind_p, True, xlabel="rescaled_p")
     plot_hist(order, beta, ind_p, False, xlabel="rescaled_p")
-    # plot_hist(order, beta, ind_theta, True, xlabel="theta")
+    plot_hist(order, beta, ind_theta, True, xlabel="theta")
     plot_hist(order, beta, ind_theta, False, xlabel="theta")
-    # plot_hist(order, beta, ind_phi, True, xlabel="phi")
+    plot_hist(order, beta, ind_phi, True, xlabel="phi")
     plot_hist(order, beta, ind_phi, False, xlabel="phi")

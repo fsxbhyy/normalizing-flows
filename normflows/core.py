@@ -23,6 +23,7 @@ class NormalizingFlow(nn.Module):
         self.q0 = q0
         self.flows = nn.ModuleList(flows)
         self.p = p
+        self.device = self.p.samples.device
 
     def forward(self, z):
         """Transforms latent variable z to the flow variable x
@@ -48,7 +49,7 @@ class NormalizingFlow(nn.Module):
           Batch in the space of the target distribution,
           log determinant of the Jacobian
         """
-        log_det = torch.zeros(len(z), device=z.device)
+        log_det = torch.zeros(len(z), device=self.device)
         for flow in self.flows:
             z, log_d = flow(z)
             log_det += log_d
@@ -78,7 +79,7 @@ class NormalizingFlow(nn.Module):
           Batch in the latent space, log determinant of the
           Jacobian
         """
-        log_det = torch.zeros(len(x), device=x.device)
+        log_det = torch.zeros(len(x), device=self.device)
         for i in range(len(self.flows) - 1, -1, -1):
             x, log_d = self.flows[i].inverse(x)
             log_det += log_d
@@ -93,7 +94,7 @@ class NormalizingFlow(nn.Module):
         Returns:
           Estimate of forward KL divergence averaged over batch
         """
-        log_q = torch.zeros(len(x), device=x.device)
+        log_q = torch.zeros(len(x), device=self.device)
         z = x
         for i in range(len(self.flows) - 1, -1, -1):
             z, log_det = self.flows[i].inverse(z)
@@ -175,7 +176,7 @@ class NormalizingFlow(nn.Module):
 
         if not score_fn:
             z_ = z
-            log_q = torch.zeros(len(z_), device=z_.device)
+            log_q = torch.zeros(len(z_), device=self.device)
             utils.set_requires_grad(self, False)
             for i in range(len(self.flows) - 1, -1, -1):
                 z_, log_det = self.flows[i].inverse(z_)
@@ -203,7 +204,7 @@ class NormalizingFlow(nn.Module):
         if dreg:
             w_const = torch.exp(log_p - log_q).detach()
             z_ = z
-            log_q = torch.zeros(len(z_), device=z_.device)
+            log_q = torch.zeros(len(z_), device=self.device)
             utils.set_requires_grad(self, False)
             for i in range(len(self.flows) - 1, -1, -1):
                 z_, log_det = self.flows[i].inverse(z_)
@@ -266,7 +267,7 @@ class NormalizingFlow(nn.Module):
                 histr = torch.zeros(bins.shape[0], num_vars)
                 histr_weight = torch.zeros(bins.shape[0], num_vars)
 
-        partition_z = torch.tensor(0.0, device=self.p.samples.device)
+        partition_z = torch.tensor(0.0, device=self.device)
         for i in range(num_blocks):
             self.p.samples, self.p.log_q = self.q0(num_samples)
             for flow in self.flows:
@@ -313,7 +314,7 @@ class NormalizingFlow(nn.Module):
     def loss_block(self, num_blocks, partition_z=1.0):
         num_samples = self.p.batchsize
 
-        loss = torch.tensor(0.0, device=self.p.samples.device)
+        loss = torch.tensor(0.0, device=self.device)
         for i in range(num_blocks):
             self.p.samples, self.p.log_q = self.q0(num_samples)
             for flow in self.flows:
@@ -359,6 +360,88 @@ class NormalizingFlow(nn.Module):
 
         return histr, bins
 
+    @torch.no_grad()
+    def mcmc_integration(
+        self,
+        num_blocks=100,
+        len_chain=1000,
+        burn_in=10,
+        thinning=1,
+    ):
+        """
+        Perform MCMC integration using batch processing.
+
+        Args:
+            initial_sample: Initial sample to start the chain.
+            len_chain: Number of samples to draw.
+            burn_in: Number of initial samples to discard.
+            thinning: Interval to thin the chain.
+
+        Returns:
+            mean, error: Mean and standard variance of the integrated samples.
+        """
+        batch_size = self.p.batchsize
+
+        # Initialize chain
+        self.p.samples, self.p.log_q = self.q0(batch_size)
+        for flow in self.flows:
+            self.p.samples, self.p.log_det = flow(self.p.samples)
+            self.p.log_q -= self.p.log_det
+        proposed_samples = torch.empty_like(self.p.samples, device=self.device)
+        proposed_log_det = torch.empty(batch_size, device=self.device)
+        proposed_log_q = torch.empty(batch_size, device=self.device)
+
+        ones_tensor = torch.ones(batch_size, dtype=torch.int8)
+
+        for i in range(burn_in):
+            # Propose new samples using the normalizing flow
+            proposed_samples, proposed_log_q = self.q0(batch_size)
+            for flow in self.flows:
+                proposed_samples, proposed_log_det = flow(proposed_samples)
+                proposed_log_q -= proposed_log_det
+
+            # Compute acceptance probabilities
+            acceptance_probs = torch.exp(proposed_log_q - self.p.log_q)
+            acceptance_probs = torch.min(ones_tensor, acceptance_probs)
+
+            # Accept or reject the proposals
+            accept = torch.rand(batch_size, device=self.device) < acceptance_probs
+            self.p.samples[accept] = proposed_samples[accept]
+            self.p.log_q[accept] = proposed_log_q[accept]
+
+        values = torch.zeros(num_blocks, device=self.device)
+        block_size = batch_size // num_blocks
+        for i in range(len_chain):
+            # Propose new samples using the normalizing flow
+            proposed_samples, proposed_log_q = self.q0(batch_size)
+            for flow in self.flows:
+                proposed_samples, proposed_log_det = flow(proposed_samples)
+                proposed_log_q -= proposed_log_det
+
+            # Compute acceptance probabilities
+            acceptance_probs = torch.exp(proposed_log_q - self.p.log_q)
+            acceptance_probs = torch.min(ones_tensor, acceptance_probs)
+
+            # Accept or reject the proposals
+            accept = torch.rand(batch_size, device=self.device) < acceptance_probs
+            self.p.samples[accept] = proposed_samples[accept]
+            self.p.log_q[accept] = proposed_log_q[accept]
+
+            # Measurement
+            if i % thinning == 0:
+                self.p.val = self.p.prob(self.p.samples)
+                for j in range(num_blocks):
+                    start = j * block_size
+                    end = (j + 1) * block_size
+                    values[j] += torch.mean(
+                        self.p.val[start:end] / torch.exp(self.p.log_q[start:end])
+                    )
+
+        mean = torch.mean(values)
+        error = torch.std(values) / num_blocks**0.5
+
+        return mean, error
+
     def log_prob(self, x):
         """Get log probability for batch
 
@@ -368,7 +451,7 @@ class NormalizingFlow(nn.Module):
         Returns:
           log probability
         """
-        log_q = torch.zeros(len(x), dtype=x.dtype, device=x.device)
+        log_q = torch.zeros(len(x), dtype=x.dtype, device=self.device)
         z = x
         for i in range(len(self.flows) - 1, -1, -1):
             z, log_det = self.flows[i].inverse(z)
@@ -426,7 +509,7 @@ class ConditionalNormalizingFlow(NormalizingFlow):
           Batch in the space of the target distribution,
           log determinant of the Jacobian
         """
-        log_det = torch.zeros(len(z), device=z.device)
+        log_det = torch.zeros(len(z), device=self.device)
         for flow in self.flows:
             z, log_d = flow(z, context=context)
             log_det += log_d
@@ -458,7 +541,7 @@ class ConditionalNormalizingFlow(NormalizingFlow):
           Batch in the latent space, log determinant of the
           Jacobian
         """
-        log_det = torch.zeros(len(x), device=x.device)
+        log_det = torch.zeros(len(x), device=self.device)
         for i in range(len(self.flows) - 1, -1, -1):
             x, log_d = self.flows[i].inverse(x, context=context)
             log_det += log_d
@@ -490,7 +573,7 @@ class ConditionalNormalizingFlow(NormalizingFlow):
         Returns:
           log probability
         """
-        log_q = torch.zeros(len(x), dtype=x.dtype, device=x.device)
+        log_q = torch.zeros(len(x), dtype=x.dtype, device=self.device)
         z = x
         for i in range(len(self.flows) - 1, -1, -1):
             z, log_det = self.flows[i].inverse(z, context=context)
@@ -508,7 +591,7 @@ class ConditionalNormalizingFlow(NormalizingFlow):
         Returns:
           Estimate of forward KL divergence averaged over batch
         """
-        log_q = torch.zeros(len(x), device=x.device)
+        log_q = torch.zeros(len(x), device=self.device)
         z = x
         for i in range(len(self.flows) - 1, -1, -1):
             z, log_det = self.flows[i].inverse(z, context=context)
@@ -536,7 +619,7 @@ class ConditionalNormalizingFlow(NormalizingFlow):
             log_q -= log_det
         if not score_fn:
             z_ = z
-            log_q = torch.zeros(len(z_), device=z_.device)
+            log_q = torch.zeros(len(z_), device=self.device)
             utils.set_requires_grad(self, False)
             for i in range(len(self.flows) - 1, -1, -1):
                 z_, log_det = self.flows[i].inverse(z_, context=context)
@@ -574,7 +657,7 @@ class ClassCondFlow(nn.Module):
         Returns:
           Estimate of forward KL divergence averaged over batch
         """
-        log_q = torch.zeros(len(x), dtype=x.dtype, device=x.device)
+        log_q = torch.zeros(len(x), dtype=x.dtype, device=self.device)
         z = x
         for i in range(len(self.flows) - 1, -1, -1):
             z, log_det = self.flows[i].inverse(z)
@@ -608,7 +691,7 @@ class ClassCondFlow(nn.Module):
         Returns:
           log probability
         """
-        log_q = torch.zeros(len(x), dtype=x.dtype, device=x.device)
+        log_q = torch.zeros(len(x), dtype=x.dtype, device=self.device)
         z = x
         for i in range(len(self.flows) - 1, -1, -1):
             z, log_det = self.flows[i].inverse(z)
@@ -691,7 +774,7 @@ class MultiscaleFlow(nn.Module):
         Returns:
             Observed variable x, log determinant of Jacobian
         """
-        log_det = torch.zeros(len(z[0]), dtype=z[0].dtype, device=z[0].device)
+        log_det = torch.zeros(len(z[0]), dtype=z[0].dtype, device=self.device)
         for i in range(len(self.q0)):
             if i == 0:
                 z_ = z[0]
@@ -715,7 +798,7 @@ class MultiscaleFlow(nn.Module):
         Returns:
             List of latent variables z, log determinant of Jacobian
         """
-        log_det = torch.zeros(len(x), dtype=x.dtype, device=x.device)
+        log_det = torch.zeros(len(x), dtype=x.dtype, device=self.device)
         if self.transform is not None:
             x, log_det_ = self.transform.inverse(x)
             log_det += log_det_

@@ -109,7 +109,7 @@ def train_model(nfm, max_iter=1000, num_samples=10000, has_scheduler=True):
     print("before training \n")
 
     # Initialize optimizer and scheduler
-    optimizer = torch.optim.Adam(nfm.parameters(), lr=4e-3)  # , weight_decay=1e-5)
+    optimizer = torch.optim.Adam(nfm.parameters(), lr=8e-3)  # , weight_decay=1e-5)
     if has_scheduler:
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -159,6 +159,9 @@ def train_model(nfm, max_iter=1000, num_samples=10000, has_scheduler=True):
             # Log loss
             loss_hist = np.append(loss_hist, loss.item())
 
+            # print(
+            #     f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}"
+            # )
             if it % 10 == 0:
                 print(
                     f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
