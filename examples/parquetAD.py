@@ -25,8 +25,8 @@ hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
-Nepochs = 250
-Nblocks = 400
+Nepochs = 50
+Nblocks = 100
 
 
 def _StringtoIntVector(s):

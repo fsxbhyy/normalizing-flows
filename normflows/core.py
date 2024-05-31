@@ -403,6 +403,7 @@ class NormalizingFlow(nn.Module):
         for i in range(len(self.flows) - 1, -1, -1):
             z[:], self.p.log_det[:] = self.flows[i].inverse(z)
             self.p.log_q += self.p.log_det
+        self.p.log_q += self.q0.log_prob(z)
         # for flow in self.flows:
         #     self.p.samples, self.p.log_det = flow(self.p.samples)
         #     self.p.log_q -= self.p.log_det
@@ -418,6 +419,7 @@ class NormalizingFlow(nn.Module):
             for i in range(len(self.flows) - 1, -1, -1):
                 z, proposed_log_det = self.flows[i].inverse(z)
                 proposed_log_q += proposed_log_det
+            proposed_log_q += self.q0.log_prob(z)
             # proposed_samples, proposed_log_q = self.q0(batch_size)
             # for flow in self.flows:
             #     proposed_samples, proposed_log_det = flow(proposed_samples)
@@ -430,8 +432,11 @@ class NormalizingFlow(nn.Module):
 
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
-            self.p.samples[accept] = proposed_samples[accept]
-            self.p.log_q[accept] = proposed_log_q[accept]
+            self.p.samples = torch.where(
+                accept.unsqueeze(1), proposed_samples, self.p.samples
+            )
+            self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
+            # self.p.log_q[accept] = proposed_log_q[accept]
 
         values = torch.zeros(num_blocks, device=device)
         block_size = batch_size // num_blocks
@@ -444,6 +449,7 @@ class NormalizingFlow(nn.Module):
             for i in range(len(self.flows) - 1, -1, -1):
                 z, proposed_log_det = self.flows[i].inverse(z)
                 proposed_log_q += proposed_log_det
+            proposed_log_q += self.q0.log_prob(z)
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
@@ -452,8 +458,11 @@ class NormalizingFlow(nn.Module):
 
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
-            self.p.samples[accept] = proposed_samples[accept]
-            self.p.log_q[accept] = proposed_log_q[accept]
+            self.p.samples = torch.where(
+                accept.unsqueeze(1), proposed_samples, self.p.samples
+            )
+            self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
+            # self.p.log_q[accept] = proposed_log_q[accept]
 
             # Measurement
             if i % thinning == 0:
