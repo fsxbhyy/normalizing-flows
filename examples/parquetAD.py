@@ -254,7 +254,9 @@ class FeynmanDiagram(nf.distributions.Target):
             accept = (
                 torch.rand(batch_size, device=self.samples.device) <= acceptance_probs
             )
-            self.samples[accept] = proposed_samples[accept]
+            self.samples = torch.where(
+                accept.unsqueeze(1), proposed_samples, self.samples
+            )
 
         return self.samples
 
@@ -345,7 +347,10 @@ def main(argv):
 
     start_time = time.time()
     mean_mcmc, err_mcmc = nfm.mcmc_integration(
-        num_blocks=blocks, len_chain=blocks, thinning=4
+        num_blocks=blocks,
+        len_chain=blocks,
+        thinning=1,
+        # alpha=0.2
     )
     print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
     print(
