@@ -12,16 +12,24 @@ class VegasMap(torch.nn.Module):
         num_input_channels,
         integration_region,
         batchsize,
+        num_adapt_samples=1000000,
         num_increments=1000,
         niters=20,
     ):
         super().__init__()
 
         vegas_map = AdaptiveMap(integration_region, ninc=num_increments)
-        y = np.random.uniform(0.0, 1.0, (batchsize, num_input_channels))
-        vegas_map.adapt_to_samples(y, func(y), nitn=niters)
+        # y = np.random.uniform(0.0, 1.0, (num_adapt_samples, num_input_channels))
+        y = torch.rand(num_adapt_samples, num_input_channels, dtype=torch.float64)
+        prob = torch.empty(num_adapt_samples)
+        for i in range(num_adapt_samples // batchsize):
+            # prob.append(func(y[i * batchsize : (i + 1) * batchsize]))
+            prob[i * batchsize : (i + 1) * batchsize] = func(
+                y[i * batchsize : (i + 1) * batchsize]
+            )
+        vegas_map.adapt_to_samples(y, prob, nitn=niters)
 
-        self.register_buffer("y", torch.Tensor(y))
+        self.register_buffer("y", torch.empty(batchsize, num_input_channels))
         self.register_buffer("grid", torch.Tensor(vegas_map.grid))
         self.register_buffer("inc", torch.Tensor(vegas_map.inc))
         self.register_buffer("ninc", torch.tensor(num_increments))

@@ -12,6 +12,8 @@ from vegas_torch import VegasMap
 # and avoid non-torch function calls
 import torch
 
+enable_cuda = True
+device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
 torch.set_printoptions(precision=10)  # Set displayed output precision to 10 digits
 
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
@@ -21,6 +23,7 @@ dim = 4 * order - 1
 beta = 10.0
 solution = 0.2773  # order 2
 # solution = -0.03115 # order 3
+integration_domain = [[0, 1]] * dim
 
 partition = [(order, 0, 0)]
 name = "sigma"
@@ -37,15 +40,24 @@ for key in partition:
     leafstates.append(state)
     leafvalues.append(values)
 
-batchsize = 100000
+num_adapt_samples = 100000
+batchsize = 5000
 niters = 20
 # batchsize = 10**dim
-diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batchsize)
+diagram_adapt = FeynmanDiagram(
+    order, loopBasis, leafstates[0], leafvalues[0], num_adapt_samples
+)
+diagram_eval = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batchsize)
 
 
 @vegas.batchintegrand
-def func(x):
-    return torch.Tensor.numpy(diagram.prob(torch.Tensor(x)))
+def integrand(x):
+    return torch.Tensor.numpy(diagram_adapt.prob(torch.Tensor(x)))
+
+
+@vegas.batchintegrand
+def integrand_eval(x):
+    return torch.Tensor.numpy(diagram_eval.prob(torch.Tensor(x)))
 
 
 @vegas.batchintegrand
@@ -53,45 +65,40 @@ def func0(x):
     return -(x[:, 0] ** 2) - x[:, 1] ** 2 + x[:, 0] + x[:, 1]
 
 
-integration_domain = [[0, 1]] * dim
+def veags_map(dim, num_samples=100000, ninc=1000, func=integrand):
+    integration_domain = [[0, 1]] * dim
+    # N_intervals = max(2, batchsize // (niters + 5) // 10)
+    # m = vegas.AdaptiveMap(integration_domain, ninc=N_intervals)
+    m = vegas.AdaptiveMap(integration_domain, ninc=ninc)
 
-m = vegas.AdaptiveMap(integration_domain, ninc=1000)
-# N_intervals = max(2, batchsize // (niters + 5) // 10)
-# m = vegas.AdaptiveMap(integration_domain, ninc=N_intervals)
-print("intial grid:")
-print(m.settings())
+    y = np.random.uniform(0.0, 1.0, (num_samples, dim))
+    m.adapt_to_samples(y, func(y), nitn=niters)
+    # print(m.settings())
+    return m
 
-y = np.random.uniform(0.0, 1.0, (batchsize, dim))
 
-# m.adapt_to_samples(y, func0(y), nitn=niters)
-m.adapt_to_samples(y, func(y), nitn=niters)
-print(m.settings())
 # m.show_grid()
 # m.show_grid(axes=[(2, 3)])
 
+m = veags_map(dim, 100000)
 y = np.random.uniform(0.0, 1.0, (batchsize, dim))
-
 jac = np.empty(y.shape[0], float)
 x = np.empty(y.shape, float)
 m.map(y, x, jac)
-# print("x:", x)
-# print("jac:", jac)
-# jac1 = np.empty(x.shape[0], float)
-# y_inv = np.empty(x.shape, float)
-# m.invmap(x, y_inv, jac1)
-# print("inv y:", y_inv)
-# print("inv jac:", jac1)
 
-fx = func(x)
+fx = torch.Tensor.numpy(diagram_eval.prob(torch.Tensor(x)))
 fy = torch.Tensor(jac) * fx
 print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 
 
-map_torch = VegasMap(func, dim, integration_domain, batchsize)
-# map_torch = VegasMap(m, dim, integration_domain, batchsize)
+###### VegasMap by torch
+map_torch = VegasMap(
+    diagram_eval.prob, dim, integration_domain, batchsize, num_adapt_samples
+)
+map_torch.to(device)
 
-x, jac = map_torch(torch.Tensor(y))
-fx = func(x)
+x, jac = map_torch.forward(torch.Tensor(y, device=device))
+fx = map_torch.func(x)
 fy = jac * fx
 print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 # y = torch.Tensor(y)
@@ -113,12 +120,7 @@ def g(y):
     jac = np.empty(y.shape[0], float)
     x = np.empty(y.shape, float)
     m.map(y, x, jac)
-    return jac * func(x)
-
-
-def g_torch(y):
-    x, jac = map_torch.forward(torch.Tensor(y))
-    return jac.numpy() * func(x)
+    return jac * integrand_eval(x)
 
 
 def block_results(data, nblocks=100):
@@ -132,7 +134,7 @@ def block_results(data, nblocks=100):
     return (mean, std)
 
 
-nblocks = 64
+nblocks = 100
 # with Veags map
 start_time = time.time()
 data = []
@@ -156,21 +158,11 @@ print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 # torch.save(hist, "histogramVegas_o{0}_beta{1}.pt".format(order, beta))
 # torch.save(hist_weight, "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta))
 
-# data = []
-# for i in range(nblocks):
-#     data.append(smc(g_torch, batchsize, dim)[0])
-# data = np.array(data)
-# r = (np.average(data), np.std(data) / nblocks**0.5)
-# print("   SMC + map (torch):", f"{r[0]:.6f} +- {r[1]:.6f}")
-# end_time = time.time()
-# wall_clock_time = end_time - start_time
-# print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
-
 # without map
 start_time = time.time()
 data = []
 for i in range(nblocks):
-    data.append(smc(func, batchsize, dim)[0])
+    data.append(smc(integrand_eval, batchsize, dim)[0])
 data = np.array(data)
 r = (np.average(data), np.std(data) / nblocks**0.5)
 print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
