@@ -13,8 +13,8 @@ num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0
 Nblocks = 100
-batch_size = 1000
-len_chain = 1000
+batch_size = 100000
+len_chain = 100
 
 partition = [(order, 0, 0)]
 name = "sigma"

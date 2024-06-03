@@ -7,7 +7,8 @@ from . import distributions
 from . import utils
 
 
-def correlation(x):
+# Function to calculate correlation between adjacent blocks
+def calculate_correlation(x):
     x_centered = x[1:] - x.mean()
     y_centered = x[:-1] - x.mean()
     cov = torch.sum(x_centered * y_centered) / (len(x) - 1)
@@ -153,15 +154,15 @@ class NormalizingFlow(nn.Module):
         # utils.set_requires_grad(self, True)
         return torch.mean(ISratio.detach() * (logp.detach() - log_q))
 
-    def forward_kld_mc(self, steps=10):
-        z = self.p.sample(steps)
+    # def forward_kld_mc(self, steps=10):
+    #     z = self.p.sample(steps)
 
-        self.p.log_q.fill_(0.0)
-        for i in range(len(self.flows) - 1, -1, -1):
-            z, self.p.log_det = self.flows[i].inverse(z)
-            self.p.log_q += self.p.log_det
-        self.p.log_q += self.q0.log_prob(z)
-        return -torch.mean(self.p.log_q)
+    #     self.p.log_q.fill_(0.0)
+    #     for i in range(len(self.flows) - 1, -1, -1):
+    #         z, self.p.log_det = self.flows[i].inverse(z)
+    #         self.p.log_q += self.p.log_det
+    #     self.p.log_q += self.q0.log_prob(z)
+    #     return -torch.mean(self.p.log_q)
 
     def MCvar(self, num_samples=1):
         z, log_q_ = self.q0(num_samples)
@@ -322,8 +323,8 @@ class NormalizingFlow(nn.Module):
                 )
                 histr_weight[:, d] += hist
 
-        print("correlation of values: ", correlation(means_t))
-        while correlation(means_t) > correlation_threshold:
+        print("correlation of values: ", calculate_correlation(means_t))
+        while calculate_correlation(means_t) > correlation_threshold:
             print("correlation too high, merge blocks")
             if num_blocks <= 64:
                 warn(
@@ -397,6 +398,52 @@ class NormalizingFlow(nn.Module):
             )
 
         return histr, bins
+
+    @torch.no_grad()
+    def mcmc_sample(self, burn_in=20):
+        batch_size = self.p.batchsize
+        device = self.p.samples.device
+        vars_shape = self.p.samples.shape
+        # Initialize chains
+        self.p.samples[:], self.p.log_q[:] = self.q0(batch_size)
+        for flow in self.flows:
+            self.p.samples[:], self.p.log_det[:] = flow(self.p.samples)
+            self.p.log_q -= self.p.log_det
+        proposed_samples = torch.empty(vars_shape, device=device)
+        proposed_log_det = torch.empty(batch_size, device=device)
+        proposed_log_q = torch.empty(batch_size, device=device)
+
+        current_prob = torch.abs(self.p.prob(self.p.samples))
+
+        new_prob = torch.empty(batch_size, device=device)
+
+        for _ in range(burn_in):
+            # Propose new samples using the normalizing flow
+            proposed_samples[:], proposed_log_q[:] = self.q0(batch_size)
+            for flow in self.flows:
+                proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
+                proposed_log_q -= proposed_log_det
+
+            new_prob[:] = torch.abs(self.p.prob(proposed_samples))
+
+            # Compute acceptance probabilities
+            acceptance_probs = torch.clamp(
+                new_prob
+                / current_prob  # Pi(x') / Pi(x)
+                * torch.exp(
+                    self.p.log_q - proposed_log_q  # q(x) / q(x')
+                ),
+                max=1,
+            )
+
+            # Accept or reject the proposals
+            accept = torch.rand(batch_size, device=device) <= acceptance_probs
+            self.p.samples = torch.where(
+                accept.unsqueeze(1), proposed_samples, self.p.samples
+            )
+            current_prob = torch.where(accept, new_prob, current_prob)
+            self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
+        return self.p.samples
 
     @torch.no_grad()
     def mcmc_integration(
@@ -522,11 +569,11 @@ class NormalizingFlow(nn.Module):
                     )
                     abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
 
-        print("correlation of values: ", correlation(values))
-        print("correlation of ref_values: ", correlation(ref_values))
+        print("correlation of values: ", calculate_correlation(values))
+        print("correlation of ref_values: ", calculate_correlation(ref_values))
         while (
-            correlation(values) > correlation_threshold
-            or correlation(abs_values) > correlation_threshold
+            calculate_correlation(values) > correlation_threshold
+            or calculate_correlation(abs_values) > correlation_threshold
         ):
             print("correlation too high, merge blocks")
             if num_blocks <= 64:
@@ -550,7 +597,7 @@ class NormalizingFlow(nn.Module):
         abs_val_mean = torch.mean(abs_values) / torch.mean(ref_values)
 
         values /= ref_values
-        print("correlation of combined values: ", correlation(values))
+        print("correlation of combined values: ", calculate_correlation(values))
         error = torch.norm(values - mean) / num_blocks
 
         abs_values /= ref_values

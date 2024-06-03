@@ -323,13 +323,14 @@ def main(argv):
     for stat in top_stats[:20]:
         print(stat)
 
+    proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
     start_time = time.time()
-    train_model(nfm, epochs, diagram.batchsize)
+    train_model(nfm, epochs, diagram.batchsize, proposal_model=proposal_model)
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
     if is_save:
-        torch.save(nfm, "nfm_o{0}_beta{1}.pt".format(order, beta))
-        torch.save(nfm.state_dict(), "nfm_o{0}_beta{1}_state.pt".format(order, beta))
+        torch.save(nfm, "nfm_o{0}_beta{1}_r1.pt".format(order, beta))
+        torch.save(nfm.state_dict(), "nfm_o{0}_beta{1}_state_r1.pt".format(order, beta))
 
     print("Start computing integration...")
     start_time = time.time()

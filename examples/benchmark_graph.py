@@ -45,7 +45,7 @@ def func(x):
 
 
 integration_domain = [[0, 1]] * dim
-map_torch = VegasMap(func, dim, integration_domain, batch_size)
+map_torch = VegasMap(diagram, dim, integration_domain, batch_size)
 map_torch = map_torch.to(device)
 
 var = torch.rand(batch_size, dim, device=device)

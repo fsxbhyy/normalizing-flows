@@ -103,6 +103,7 @@ def train_model(
     max_iter=1000,
     num_samples=10000,
     has_scheduler=True,
+    proposal_model=None,
 ):
     # Train model
     # Move model on GPU if available
@@ -144,7 +145,11 @@ def train_model(
         #     else:
 
         # loss = nfm.forward_kld_mc(num_samples)
-        loss = nfm.IS_forward_kld(num_samples)
+        if proposal_model is None:
+            loss = nfm.IS_forward_kld(num_samples)
+        else:
+            x = proposal_model.p.sample()
+            loss = nfm.forward_kld(x)
         # loss = nfm.reverse_kld(num_samples)
         # loss = nfm.MCvar(num_samples)
         # print(loss)
