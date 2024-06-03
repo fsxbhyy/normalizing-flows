@@ -37,7 +37,7 @@ for key in partition:
     leafstates.append(state)
     leafvalues.append(values)
 
-batchsize = 200000
+batchsize = 100000
 niters = 20
 # batchsize = 10**dim
 diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batchsize)
@@ -53,17 +53,15 @@ def func0(x):
     return -(x[:, 0] ** 2) - x[:, 1] ** 2 + x[:, 0] + x[:, 1]
 
 
-# integration_domain = [[0, 1]] * dim
 integration_domain = [[0, 1]] * dim
 
-# N_intervals = max(2, batchsize // (niters + 5) // 10)
 m = vegas.AdaptiveMap(integration_domain, ninc=1000)
+# N_intervals = max(2, batchsize // (niters + 5) // 10)
 # m = vegas.AdaptiveMap(integration_domain, ninc=N_intervals)
 print("intial grid:")
 print(m.settings())
 
 y = np.random.uniform(0.0, 1.0, (batchsize, dim))
-# y = np.array(y, dtype=float)
 
 # m.adapt_to_samples(y, func0(y), nitn=niters)
 m.adapt_to_samples(y, func(y), nitn=niters)
@@ -149,14 +147,14 @@ print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 
 # with Vegas map (torch)
 start_time = time.time()
-mean, std, bins, hist, hist_weight = map_torch.integrate_block(nblocks)
+mean, std = map_torch.integrate_block(nblocks)
 print("   Vegas map (torch):", f"{mean:.6f} +- {std:.6f}")
 end_time = time.time()
 wall_clock_time = end_time - start_time
 print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
-print(bins)
-torch.save(hist, "histogramVegas_o{0}_beta{1}.pt".format(order, beta))
-torch.save(hist_weight, "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta))
+# print(bins)
+# torch.save(hist, "histogramVegas_o{0}_beta{1}.pt".format(order, beta))
+# torch.save(hist_weight, "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta))
 
 # data = []
 # for i in range(nblocks):

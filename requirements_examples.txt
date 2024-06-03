@@ -4,3 +4,5 @@ tqdm
 scikit-learn
 ipywidgets
 pandas
+h5py
+absl-py

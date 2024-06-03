@@ -107,6 +107,32 @@ class VegasMap(torch.nn.Module):
         num_vars = self.y.shape[1]
         # Pre-allocate tensor for storing means and histograms
         means_t = torch.zeros(num_blocks)
+
+        # Loop to fill the tensor with mean values
+        for i in range(num_blocks):
+            self.y = torch.rand(num_samples, num_vars)
+            self.x, self.jac = self.forward(self.y)
+
+            res = torch.Tensor(self.func(self.x)) * self.jac
+            means_t[i] = torch.mean(res, dim=0)
+
+        # Compute mean and standard deviation directly on the tensor
+        mean_combined = torch.mean(means_t)
+        std_combined = torch.std(means_t) / num_blocks**0.5
+
+        return (
+            mean_combined,
+            std_combined,
+        )
+
+    @torch.no_grad()
+    def integrate_block_histr(self, num_blocks, bins=25, hist_range=(0.0, 1.0)):
+        print("Estimating integral from trained network")
+
+        num_samples = self.y.shape[0]
+        num_vars = self.y.shape[1]
+        # Pre-allocate tensor for storing means and histograms
+        means_t = torch.zeros(num_blocks)
         with torch.device("cpu"):
             if isinstance(bins, int):
                 histr = torch.zeros(bins, num_vars)
