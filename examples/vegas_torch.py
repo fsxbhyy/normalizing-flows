@@ -114,11 +114,11 @@ class VegasMap(torch.nn.Module):
         num_samples = self.y.shape[0]
         num_vars = self.y.shape[1]
         # Pre-allocate tensor for storing means and histograms
-        means_t = torch.zeros(num_blocks)
+        means_t = torch.empty(num_blocks, device=self.y.device)
 
         # Loop to fill the tensor with mean values
         for i in range(num_blocks):
-            self.y = torch.rand(num_samples, num_vars)
+            self.y[:] = torch.rand(num_samples, num_vars, device=self.y.device)
             self.x, self.jac = self.forward(self.y)
 
             res = torch.Tensor(self.target.prob(self.x)) * self.jac
@@ -143,15 +143,17 @@ class VegasMap(torch.nn.Module):
         means_t = torch.zeros(num_blocks)
         with torch.device("cpu"):
             if isinstance(bins, int):
-                histr = torch.zeros(bins, num_vars)
-                histr_weight = torch.zeros(bins, num_vars)
+                histr = torch.zeros(bins, num_vars, device=self.y.device)
+                histr_weight = torch.zeros(bins, num_vars, device=self.y.device)
             else:
-                histr = torch.zeros(bins.shape[0], num_vars)
-                histr_weight = torch.zeros(bins.shape[0], num_vars)
+                histr = torch.zeros(bins.shape[0], num_vars, device=self.y.device)
+                histr_weight = torch.zeros(
+                    bins.shape[0], num_vars, device=self.y.device
+                )
 
         # Loop to fill the tensor with mean values
         for i in range(num_blocks):
-            self.y = torch.rand(num_samples, num_vars)
+            self.y = torch.rand(num_samples, num_vars, device=self.y.device)
             self.x, self.jac = self.forward(self.y)
 
             # for flow in self.flows:

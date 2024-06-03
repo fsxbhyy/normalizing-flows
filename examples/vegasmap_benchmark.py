@@ -97,13 +97,13 @@ print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 map_torch = VegasMap(
     diagram_eval, dim, integration_domain, batchsize, num_adapt_samples
 )
-map_torch = map_torch.to(device)
+# map_torch = map_torch.to(device)
 
-y_tensor = torch.Tensor(y).to(device)
-x, jac = map_torch.forward(y_tensor)
-fx = map_torch.target.prob(x)
-fy = jac * fx
-print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
+# y_tensor = torch.Tensor(y).to(device)
+# x, jac = map_torch.forward(y_tensor)
+# fx = map_torch.target.prob(x)
+# fy = jac * fx
+# print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 # y = torch.Tensor(y)
 # print(y)
 # x, jac = map_torch(y)
@@ -150,6 +150,7 @@ wall_clock_time = end_time - start_time
 print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 
 # with Vegas map (torch)
+map_torch = map_torch.to(device)
 start_time = time.time()
 mean, std = map_torch.integrate_block(nblocks)
 print("   Vegas map (torch):", f"{mean:.6f} +- {std:.6f}")
@@ -160,17 +161,18 @@ print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 # torch.save(hist, "histogramVegas_o{0}_beta{1}.pt".format(order, beta))
 # torch.save(hist_weight, "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta))
 
-# without map
-start_time = time.time()
-data = []
-for i in range(nblocks):
-    data.append(smc(integrand_eval, batchsize, dim)[0])
-data = np.array(data)
-r = (np.average(data), np.std(data) / nblocks**0.5)
-print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
-end_time = time.time()
-wall_clock_time = end_time - start_time
-print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
+# # without map
+# start_time = time.time()
+# data = []
+# for i in range(nblocks):
+#     data.append(smc(integrand_eval, batchsize, dim)[0])
+# data = np.array(data)
+# r = (np.average(data), np.std(data) / nblocks**0.5)
+# print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
+# end_time = time.time()
+# wall_clock_time = end_time - start_time
+# print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
+
 # integ = vegas.Integrator(m, alpha=0.0, beta=0.0)
 # r = integ(func, neval=5e7, nitn=5)
 # print(r.summary())
