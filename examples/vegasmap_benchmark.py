@@ -95,13 +95,13 @@ print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 
 ###### VegasMap by torch
 map_torch = VegasMap(
-    diagram_eval.prob, dim, integration_domain, batchsize, num_adapt_samples
+    diagram_eval, dim, integration_domain, batchsize, num_adapt_samples
 )
 map_torch = map_torch.to(device)
 
 y_tensor = torch.Tensor(y).to(device)
 x, jac = map_torch.forward(y_tensor)
-fx = map_torch.func(x)
+fx = map_torch.target.prob(x)
 fy = jac * fx
 print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 # y = torch.Tensor(y)

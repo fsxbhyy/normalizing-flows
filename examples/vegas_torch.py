@@ -7,7 +7,7 @@ class VegasMap(torch.nn.Module):
     @torch.no_grad()
     def __init__(
         self,
-        func,
+        target,
         # vegas_map,
         num_input_channels,
         integration_region,
@@ -24,7 +24,7 @@ class VegasMap(torch.nn.Module):
         prob = torch.empty(num_adapt_samples)
         for i in range(num_adapt_samples // batchsize):
             # prob.append(func(y[i * batchsize : (i + 1) * batchsize]))
-            prob[i * batchsize : (i + 1) * batchsize] = func(
+            prob[i * batchsize : (i + 1) * batchsize] = target.prob(
                 y[i * batchsize : (i + 1) * batchsize]
             )
         vegas_map.adapt_to_samples(y, prob, nitn=niters)
@@ -37,7 +37,7 @@ class VegasMap(torch.nn.Module):
         self.register_buffer("x", torch.empty_like(self.y))
         self.register_buffer("jac", torch.ones(batchsize))
 
-        self.func = func
+        self.target = target
 
     @torch.no_grad()
     def forward(self, y):
@@ -121,7 +121,7 @@ class VegasMap(torch.nn.Module):
             self.y = torch.rand(num_samples, num_vars)
             self.x, self.jac = self.forward(self.y)
 
-            res = torch.Tensor(self.func(self.x)) * self.jac
+            res = torch.Tensor(self.target.prob(self.x)) * self.jac
             means_t[i] = torch.mean(res, dim=0)
 
         # Compute mean and standard deviation directly on the tensor
@@ -159,7 +159,7 @@ class VegasMap(torch.nn.Module):
             #     self.p.log_q -= self.p.log_det
             # self.p.log_q = torch.exp(self.p.log_q)
             # self.p.var = self.p.prob(self.p.samples)
-            res = torch.Tensor(self.func(self.x)) * self.jac
+            res = torch.Tensor(self.target.prob(self.x)) * self.jac
             means_t[i] = torch.mean(res, dim=0)
 
             z = self.x.detach().cpu()
