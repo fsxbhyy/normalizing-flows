@@ -25,10 +25,11 @@ hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
-Nepochs = 100
+Nepochs = 400
 Nblocks = 100
 
-is_save = False
+# is_save = False
+is_save = True
 
 
 def _StringtoIntVector(s):

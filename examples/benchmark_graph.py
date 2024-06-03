@@ -4,13 +4,17 @@ from funcs_sigma import *
 from parquetAD import FeynmanDiagram, load_leaf_info
 import os
 import torch.utils.benchmark as benchmark
+import vegas
+from vegas_torch import VegasMap
+import numpy as np
 
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 3
+order = 1
 dim = 4 * order - 1
 beta = 10.0
-batch_size = 1000000
+batch_size = 100000
+Neval = 10
 
 partition = [(order, 0, 0)]
 name = "sigma"
@@ -29,16 +33,42 @@ for key in partition:
 
 # for batchsize in [10**i for i in range(0, 7)]:
 batch_size = 1000000
-nfm = torch.load("nfm_o3_beta10.0.pt")
-nfm.eval()
-
 diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
-var = torch.rand(batch_size, dim, device=diagram.val.device)
-t0 = benchmark.Timer(stmt="diagram.prob(var)", globals={"diagram": diagram, "var": var})
 
-t1 = benchmark.Timer(
-    stmt="nfm.sample(batch_size)", globals={"nfm": nfm, "batch_size": batch_size}
+
+# Vegas
+@vegas.batchintegrand
+def func(x):
+    return torch.Tensor.numpy(diagram.prob(torch.Tensor(x)))
+
+
+integration_domain = [[0, 1]] * dim
+map_torch = VegasMap(func, dim, integration_domain, batch_size)
+
+var = torch.rand(batch_size, dim, device=diagram.val.device)
+t0 = benchmark.Timer(
+    stmt="map_torch.forward(var)",
+    globals={"map_torch": map_torch, "var": var},
+    label="Self-energy diagram (order {0} beta {1})".format(order, beta),
+    sub_label="sampling using VEAGS map",
 )
 
-print(t0.timeit(100))
-print(t1.timeit(100))
+nfm = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
+nfm.eval()
+t1 = benchmark.Timer(
+    stmt="nfm.forward(var)",
+    globals={"nfm": nfm, "var": var},
+    label="Self-energy diagram (order {0} beta {1})".format(order, beta),
+    sub_label="sampling using normalizing flow",
+)
+
+t2 = benchmark.Timer(
+    stmt="diagram.prob(var)",
+    globals={"diagram": diagram, "var": var},
+    label="Self-energy diagram (order {0} beta {1})".format(order, beta),
+    sub_label="Evaluating integrand",
+)
+
+print(t0.timeit(Neval))
+print(t1.timeit(Neval))
+print(t2.timeit(Neval))
