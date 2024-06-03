@@ -80,7 +80,7 @@ def veags_map(dim, num_samples=100000, ninc=1000, func=integrand):
 # m.show_grid()
 # m.show_grid(axes=[(2, 3)])
 
-m = veags_map(dim, 100000)
+m = veags_map(dim, num_adapt_samples)
 y = np.random.uniform(0.0, 1.0, (batchsize, dim))
 jac = np.empty(y.shape[0], float)
 x = np.empty(y.shape, float)
@@ -95,7 +95,7 @@ print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 map_torch = VegasMap(
     diagram_eval.prob, dim, integration_domain, batchsize, num_adapt_samples
 )
-map_torch.to(device)
+map_torch = map_torch.to(device)
 
 x, jac = map_torch.forward(torch.Tensor(y, device=device))
 fx = map_torch.func(x)
