@@ -25,8 +25,10 @@ hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
-Nepochs = 50
+Nepochs = 100
 Nblocks = 100
+
+is_save = False
 
 
 def _StringtoIntVector(s):
@@ -208,15 +210,8 @@ class FeynmanDiagram(nf.distributions.Target):
         self.leaf_bose[:] = ((self.e0**2 / self.eps0) * self.invK) * (
             self.mass2 * self.invK
         ) ** self.lforders[1]
-        # print("Before update:", self.leafvalues)
-        # print(self.isfermi)
-        # print(self.isbose)
-        # print(self.leaf_fermi)
-        # print(self.leaf_bose)
         # self.leafvalues[self.isfermi] = self.leaf_fermi[self.isfermi]
         # self.leafvalues[self.isbose] = self.leaf_bose[self.isbose]
-        # print("After update:", self.leafvalues)
-        # exit(-1)
         self.leafvalues = torch.where(self.isfermi, self.leaf_fermi, self.leafvalues)
         self.leafvalues = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
 
@@ -330,6 +325,10 @@ def main(argv):
     start_time = time.time()
     train_model(nfm, epochs, diagram.batchsize)
     print("Training time: {:.3f}s".format(time.time() - start_time))
+
+    if is_save:
+        torch.save(nfm, "nfm_o{0}_beta{1}.pt".format(order, beta))
+        torch.save(nfm.state_dict(), "nfm_o{0}_beta{1}_state.pt".format(order, beta))
 
     print("Start computing integration...")
     start_time = time.time()

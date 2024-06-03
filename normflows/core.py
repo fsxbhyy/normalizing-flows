@@ -238,11 +238,16 @@ class NormalizingFlow(nn.Module):
         Returns:
           Samples, log probability
         """
-        z, log_q = self.q0(num_samples)
+        # z, log_q = self.q0(num_samples)
+        # for flow in self.flows:
+        #     z, log_det = flow(z)
+        #     log_q -= log_det
+        # return z, log_q
+        self.p.samples[:], self.p.log_q[:] = self.q0(num_samples)
         for flow in self.flows:
-            z, log_det = flow(z)
-            log_q -= log_det
-        return z, log_q
+            self.p.samples[:], self.p.log_det[:] = flow(self.p.samples)
+            self.p.log_q -= self.p.log_det
+        return self.p.samples, self.p.log_q
 
     @torch.no_grad()
     def integrate(self):
@@ -374,18 +379,21 @@ class NormalizingFlow(nn.Module):
         self, num_blocks=100, len_chain=1000, burn_in=None, thinning=1, alpha=1.0
     ):
         """
-        Perform MCMC integration using batch processing.
+        Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
+        Pi(x) = alpha * q(x) + (1 - alpha) * p(x),
+        where q(x) is the learned distribution by the normalizing flow, and p(x) is the target distribution.
 
         Args:
             num_blocks: Number of blocks to divide the batch into.
             len_chain: Number of samples to draw.
             burn_in: Number of initial samples to discard.
             thinning: Interval to thin the chain.
-            alpha: Annealing parameter for reverse KL divergence.
+            alpha: Annealing parameter.
 
         Returns:
             mean, error: Mean and standard variance of the integrated samples.
         """
+        epsilon = 1e-10  # Small value to ensure numerical stability
         batch_size = self.p.batchsize
         device = self.p.samples.device
         vars_shape = self.p.samples.shape
@@ -409,8 +417,10 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        current_prob = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
-            self.p.prob(proposed_samples)
+        current_prob = torch.clamp(
+            alpha * torch.exp(self.p.log_q)
+            + (1 - alpha) * torch.abs(self.p.prob(proposed_samples)),
+            min=epsilon,
         )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
         new_prob = torch.empty(batch_size, device=device)
 
@@ -428,14 +438,13 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
-                self.p.prob(proposed_samples)
+            new_prob[:] = torch.clamp(
+                alpha * torch.exp(proposed_log_q)
+                + (1 - alpha) * torch.abs(self.p.prob(proposed_samples)),
+                min=epsilon,
             )
 
             # Compute acceptance probabilities
-            # acceptance_probs = torch.clamp(
-            #     torch.exp(proposed_log_q - self.p.log_q), max=1
-            # )
             acceptance_probs = torch.clamp(
                 new_prob
                 / current_prob  # Pi(x') / Pi(x)
@@ -474,14 +483,13 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
-                self.p.prob(proposed_samples)
+            new_prob[:] = torch.clamp(
+                alpha * torch.exp(proposed_log_q)
+                + (1 - alpha) * torch.abs(self.p.prob(proposed_samples)),
+                min=epsilon,
             )
 
             # Compute acceptance probabilities
-            # acceptance_probs = torch.clamp(
-            #     torch.exp(proposed_log_q - self.p.log_q), max=1
-            # )
             acceptance_probs = torch.clamp(
                 new_prob
                 / current_prob  # Pi(x') / Pi(x)
@@ -513,6 +521,7 @@ class NormalizingFlow(nn.Module):
                     )
                     abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
 
+        print("reference values: ", ref_values)
         values /= ref_values
         abs_values /= ref_values
         print(

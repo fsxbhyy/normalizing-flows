@@ -98,7 +98,12 @@ def generate_model(
 #     print("\n")
 
 
-def train_model(nfm, max_iter=1000, num_samples=10000, has_scheduler=True):
+def train_model(
+    nfm,
+    max_iter=1000,
+    num_samples=10000,
+    has_scheduler=True,
+):
     # Train model
     # Move model on GPU if available
 

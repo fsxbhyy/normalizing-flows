@@ -3,13 +3,13 @@ using CompositeGrids
 
 dim = 3
 rs = [2.0]
-order = [1]  # maximum diagram order of the run
+order = [3]  # maximum diagram order of the run
 mass2 = [0.5]
 
 Fs = [-0.0]        # Fermi liquid parameter with zero angular momentum
 beta = [10.0]      # inverse temperature beta = β*E_F 
 # neval = 4e6       # number of Monte Carlo samples
-neval = 4e8       # number of Monte Carlo samples
+neval = 2e7       # number of Monte Carlo samples
 #neval = 16e6       # number of Monte Carlo samples
 isDynamic = false  # whether to use effective field theory with dynamic screening or not 
 isFock = false     # whether to use Fock renormalization or not
