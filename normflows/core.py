@@ -409,12 +409,9 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        # current_prob = torch.clamp(
         current_prob = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
             self.p.prob(self.p.samples)
-        )
-        # min=epsilon,
-        # )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
+        )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
         new_prob = torch.empty(batch_size, device=device)
 
         for _ in range(burn_in):
@@ -505,10 +502,10 @@ class NormalizingFlow(nn.Module):
         mean = torch.mean(values) / torch.mean(ref_values)
         abs_val_mean = torch.mean(abs_values) / torch.mean(ref_values)
         values /= ref_values
-        error = torch.norm(values - mean) / num_blocks
+        error = torch.norm(self.p.val - mean) / num_blocks
 
         abs_values /= ref_values
-        err_absval = torch.norm(abs_values - abs_val_mean) / num_blocks
+        err_absval = torch.norm(abs_values - abs_val_mean) / batch_size
         print(
             "|f(x)| Integration results: {:.5e} +/- {:.5e}",
             abs_val_mean,
