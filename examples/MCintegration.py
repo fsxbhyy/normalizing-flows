@@ -13,6 +13,7 @@ num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0
 Nblocks = 100
+batch_size = 1000
 len_chain = 1000
 
 partition = [(order, 0, 0)]
@@ -31,8 +32,8 @@ for key in partition:
     leafvalues.append(values)
 
 
-def main(blocks, len_chain):
-    diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], blocks)
+def main(blocks, len_chain, batch_size):
+    diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
 
     print("Loading normalizing-flow model")
     start_time = time.time()
@@ -42,19 +43,17 @@ def main(blocks, len_chain):
     nfm = nfm.to(device)
     print("Loading model takes {:.3f}s".format(time.time() - start_time))
 
-    batch_size = nfm.p.batchsize
     print("Start computing integration...")
-
     start_time = time.time()
     num_hist_bins = 25
     with torch.no_grad():
         mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
-            blocks, num_hist_bins
+            len_chain, num_hist_bins
         )
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n".format(
-            blocks * batch_size, mean, err
+            len_chain * batch_size, mean, err
         )
     )
 
@@ -73,4 +72,4 @@ def main(blocks, len_chain):
 
 
 if __name__ == "__main__":
-    main(Nblocks, len_chain)
+    main(Nblocks, len_chain, batch_size)

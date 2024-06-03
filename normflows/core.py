@@ -393,22 +393,14 @@ class NormalizingFlow(nn.Module):
         Returns:
             mean, error: Mean and standard variance of the integrated samples.
         """
-        epsilon = 1e-10  # Small value to ensure numerical stability
+        # epsilon = 1e-10  # Small value to ensure numerical stability
         batch_size = self.p.batchsize
         device = self.p.samples.device
         vars_shape = self.p.samples.shape
         if burn_in is None:
             burn_in = len_chain // 5
 
-        # Initialize chain
-        # torch.rand(vars_shape, out=self.p.samples)
-        # z = self.p.samples.clone().detach()
-        # self.p.log_q.fill_(0.0)
-        # for i in range(len(self.flows) - 1, -1, -1):
-        #     z[:], self.p.log_det[:] = self.flows[i].inverse(z)
-        #     self.p.log_q += self.p.log_det
-        # self.p.log_q += self.q0.log_prob(z)
-
+        # Initialize chains
         self.p.samples[:], self.p.log_q[:] = self.q0(batch_size)
         for flow in self.flows:
             self.p.samples[:], self.p.log_det[:] = flow(self.p.samples)
@@ -417,32 +409,27 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        current_prob = torch.clamp(
-            alpha * torch.exp(self.p.log_q)
-            + (1 - alpha) * torch.abs(self.p.prob(proposed_samples)),
-            min=epsilon,
-        )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
+        # current_prob = torch.clamp(
+        current_prob = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
+            self.p.prob(self.p.samples)
+        )
+        # min=epsilon,
+        # )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
         new_prob = torch.empty(batch_size, device=device)
 
-        for i in range(burn_in):
+        for _ in range(burn_in):
             # Propose new samples using the normalizing flow
-            # torch.rand(vars_shape, out=proposed_samples)
-            # z[:] = proposed_samples
-            # proposed_log_q.fill_(0.0)
-            # for i in range(len(self.flows) - 1, -1, -1):
-            #     z, proposed_log_det = self.flows[i].inverse(z)
-            #     proposed_log_q += proposed_log_det
-            # proposed_log_q += self.q0.log_prob(z)
             proposed_samples[:], proposed_log_q[:] = self.q0(batch_size)
             for flow in self.flows:
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = torch.clamp(
-                alpha * torch.exp(proposed_log_q)
-                + (1 - alpha) * torch.abs(self.p.prob(proposed_samples)),
-                min=epsilon,
+            # new_prob[:] = torch.clamp(
+            new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
+                self.p.prob(proposed_samples)
             )
+            #     min=epsilon,
+            # )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
@@ -470,24 +457,17 @@ class NormalizingFlow(nn.Module):
         num_measure = 0
         for i in range(len_chain):
             # Propose new samples using the normalizing flow
-            # torch.rand(vars_shape, out=proposed_samples)
-            # z[:] = proposed_samples
-            # proposed_log_q.fill_(0.0)
-            # for i in range(len(self.flows) - 1, -1, -1):
-            #     z, proposed_log_det = self.flows[i].inverse(z)
-            #     proposed_log_q += proposed_log_det
-            # proposed_log_q += self.q0.log_prob(z)
-
             proposed_samples[:], proposed_log_q[:] = self.q0(batch_size)
             for flow in self.flows:
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = torch.clamp(
-                alpha * torch.exp(proposed_log_q)
-                + (1 - alpha) * torch.abs(self.p.prob(proposed_samples)),
-                min=epsilon,
+            # new_prob[:] = torch.clamp(
+            new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
+                self.p.prob(proposed_samples)
             )
+            #     min=epsilon,
+            # )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
@@ -522,15 +502,18 @@ class NormalizingFlow(nn.Module):
                     abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
 
         print("reference values: ", ref_values)
+        mean = torch.mean(values) / torch.mean(ref_values)
+        abs_val_mean = torch.mean(abs_values) / torch.mean(ref_values)
         values /= ref_values
+        error = torch.norm(values - mean) / num_blocks
+
         abs_values /= ref_values
+        err_absval = torch.norm(abs_values - abs_val_mean) / num_blocks
         print(
             "|f(x)| Integration results: {:.5e} +/- {:.5e}",
-            abs_values.mean(),
-            abs_values.std() / num_blocks**0.5,
+            abs_val_mean,
+            err_absval,
         )
-        mean = torch.mean(values)
-        error = torch.std(values) / num_blocks**0.5
 
         return mean, error
 
