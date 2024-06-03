@@ -502,10 +502,10 @@ class NormalizingFlow(nn.Module):
         mean = torch.mean(values) / torch.mean(ref_values)
         abs_val_mean = torch.mean(abs_values) / torch.mean(ref_values)
         values /= ref_values
-        error = torch.norm(self.p.val - mean) / num_blocks
+        error = torch.norm(values - mean) / num_blocks
 
         abs_values /= ref_values
-        err_absval = torch.norm(abs_values - abs_val_mean) / batch_size
+        err_absval = torch.norm(abs_values - abs_val_mean) / num_blocks
         print(
             "|f(x)| Integration results: {:.5e} +/- {:.5e}",
             abs_val_mean,
