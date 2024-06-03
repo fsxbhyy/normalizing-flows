@@ -12,7 +12,7 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0
-Nblocks = 100
+Nblocks = 1000
 len_chain = 1000
 
 partition = [(order, 0, 0)]
@@ -49,7 +49,7 @@ def main(blocks, len_chain):
     num_hist_bins = 25
     with torch.no_grad():
         mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
-            blocks, num_hist_bins
+            len_chain, num_hist_bins
         )
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
     print(

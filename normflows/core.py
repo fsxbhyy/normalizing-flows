@@ -384,7 +384,7 @@ class NormalizingFlow(nn.Module):
         where q(x) is the learned distribution by the normalizing flow, and p(x) is the target distribution.
 
         Args:
-            num_blocks: Number of blocks to divide the batch into.
+            # num_blocks: Number of blocks to divide the batch into.
             len_chain: Number of samples to draw.
             burn_in: Number of initial samples to discard.
             thinning: Interval to thin the chain.
@@ -419,12 +419,13 @@ class NormalizingFlow(nn.Module):
 
         current_prob = torch.clamp(
             alpha * torch.exp(self.p.log_q)
-            + (1 - alpha) * torch.abs(self.p.prob(proposed_samples)),
+            + (1 - alpha) * torch.abs(self.p.prob(self.p.samples)),
             min=epsilon,
         )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
         new_prob = torch.empty(batch_size, device=device)
 
-        for i in range(burn_in):
+        # print(current_prob[0])
+        for _ in range(burn_in):
             # Propose new samples using the normalizing flow
             # torch.rand(vars_shape, out=proposed_samples)
             # z[:] = proposed_samples
@@ -443,6 +444,7 @@ class NormalizingFlow(nn.Module):
                 + (1 - alpha) * torch.abs(self.p.prob(proposed_samples)),
                 min=epsilon,
             )
+            # print("new_prob: ", new_prob[0].item())
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
@@ -460,14 +462,20 @@ class NormalizingFlow(nn.Module):
                 accept.unsqueeze(1), proposed_samples, self.p.samples
             )
             current_prob = torch.where(accept, new_prob, current_prob)
+            # print("current_: ", current_prob[0].item())
+
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
             # self.p.log_q[accept] = proposed_log_q[accept]
 
-        ref_values = torch.zeros(num_blocks, device=device)
-        values = torch.zeros(num_blocks, device=device)
-        abs_values = torch.zeros(num_blocks, device=device)
+        # Measurement phase
+        ref_values = torch.zeros(batch_size, device=device)
+        abs_values = torch.zeros(batch_size, device=device)
+        # ref_values = torch.zeros(num_blocks, device=device)
+        # values = torch.zeros(num_blocks, device=device)
+        # abs_values = torch.zeros(num_blocks, device=device)
         block_size = batch_size // num_blocks
         num_measure = 0
+        self.p.val.fill_(0.0)
         for i in range(len_chain):
             # Propose new samples using the normalizing flow
             # torch.rand(vars_shape, out=proposed_samples)
@@ -510,27 +518,33 @@ class NormalizingFlow(nn.Module):
             # Measurement
             if i % thinning == 0:
                 num_measure += 1
-                self.p.val = self.p.prob(self.p.samples) / current_prob
+                self.p.val += self.p.prob(self.p.samples) / current_prob / len_chain
+                ref_values += torch.exp(self.p.log_q) / current_prob / len_chain
+                # ref_values += 1.0 / current_prob
+                abs_values += (
+                    torch.abs(self.p.prob(self.p.samples)) / current_prob / len_chain
+                )
 
-                for j in range(num_blocks):
-                    start = j * block_size
-                    end = (j + 1) * block_size
-                    values[j] += torch.mean(self.p.val[start:end])
-                    ref_values[j] += torch.mean(
-                        torch.exp(self.p.log_q[start:end]) / current_prob[start:end]
-                    )
-                    abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
+                # for j in range(num_blocks):
+                #     start = j * block_size
+                #     end = (j + 1) * block_size
+                #     values[j] += torch.mean(self.p.val[start:end])
+                #     ref_values[j] += torch.mean(
+                #         torch.exp(self.p.log_q[start:end]) / current_prob[start:end]
+                #     )
+                #     abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
 
         print("reference values: ", ref_values)
-        values /= ref_values
+        # Normalize measurements
+        mean = torch.mean(self.p.val) / torch.mean(ref_values)
+        mean_abs = torch.mean(abs_values) / torch.mean(ref_values)
+
+        self.p.val /= ref_values
+        error = torch.norm(self.p.val - mean) / batch_size
         abs_values /= ref_values
-        print(
-            "|f(x)| Integration results: {:.5e} +/- {:.5e}",
-            abs_values.mean(),
-            abs_values.std() / num_blocks**0.5,
-        )
-        mean = torch.mean(values)
-        error = torch.std(values) / num_blocks**0.5
+        err_absval = torch.norm(abs_values - mean_abs) / batch_size
+
+        print("|f(x)| Integration results: {:.5e} +/- {:.5e}", mean_abs, err_absval)
 
         return mean, error
 
