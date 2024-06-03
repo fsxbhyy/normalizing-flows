@@ -1,9 +1,17 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from warnings import warn
 
 from . import distributions
 from . import utils
+
+
+def correlation(x):
+    x_centered = x[1:] - x.mean()
+    y_centered = x[:-1] - x.mean()
+    cov = torch.sum(x_centered * y_centered) / (len(x) - 1)
+    return torch.abs(cov / torch.var(x))
 
 
 class NormalizingFlow(nn.Module):
@@ -266,7 +274,9 @@ class NormalizingFlow(nn.Module):
         return torch.mean(func / q, dim=0)
 
     @torch.no_grad()
-    def integrate_block(self, num_blocks, bins=25, hist_range=(0.0, 1.0)):
+    def integrate_block(
+        self, num_blocks, bins=25, hist_range=(0.0, 1.0), correlation_threshold=0.2
+    ):
         print("Estimating integral from trained network")
 
         num_samples = self.p.batchsize
@@ -311,7 +321,21 @@ class NormalizingFlow(nn.Module):
                     density=True,
                 )
                 histr_weight[:, d] += hist
-        # Compute mean and standard deviation directly on the tensor
+
+        print("correlation of values: ", correlation(means_t))
+        while correlation(means_t) > correlation_threshold:
+            print("correlation too high, merge blocks")
+            if num_blocks <= 64:
+                warn(
+                    "blocks too small, increase burn-in or reduce thinning",
+                    category=UserWarning,
+                )
+                break
+            num_blocks //= 2
+            k = 0
+            for j in range(0, num_blocks):
+                means_t[j] = (means_t[k] + means_t[k + 1]) / 2.0
+                k += 2
         mean_combined = torch.mean(means_t)
         std_combined = torch.std(means_t) / num_blocks**0.5
 
@@ -376,7 +400,13 @@ class NormalizingFlow(nn.Module):
 
     @torch.no_grad()
     def mcmc_integration(
-        self, num_blocks=100, len_chain=1000, burn_in=None, thinning=1, alpha=1.0
+        self,
+        num_blocks=100,
+        len_chain=1000,
+        burn_in=None,
+        thinning=1,
+        alpha=1.0,
+        correlation_threshold=0.2,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -421,12 +451,9 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            # new_prob[:] = torch.clamp(
             new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
                 self.p.prob(proposed_samples)
             )
-            #     min=epsilon,
-            # )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
@@ -459,12 +486,9 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            # new_prob[:] = torch.clamp(
             new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
                 self.p.prob(proposed_samples)
             )
-            #     min=epsilon,
-            # )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
@@ -498,10 +522,35 @@ class NormalizingFlow(nn.Module):
                     )
                     abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
 
-        print("reference values: ", ref_values)
+        print("correlation of values: ", correlation(values))
+        print("correlation of ref_values: ", correlation(ref_values))
+        while (
+            correlation(values) > correlation_threshold
+            or correlation(abs_values) > correlation_threshold
+        ):
+            print("correlation too high, merge blocks")
+            if num_blocks <= 64:
+                warn(
+                    "blocks too small, increase burn-in or reduce thinning",
+                    category=UserWarning,
+                )
+                break
+            num_blocks //= 2
+            k = 0
+            for j in range(0, num_blocks):
+                values[j] = (values[k] + values[k + 1]) / 2.0
+                abs_values[j] = (abs_values[k] + abs_values[k + 1]) / 2.0
+                ref_values[j] = (ref_values[k] + ref_values[k + 1]) / 2.0
+                k += 2
+        values = values[:num_blocks]
+        abs_values = abs_values[:num_blocks]
+        ref_values = ref_values[:num_blocks]
+
         mean = torch.mean(values) / torch.mean(ref_values)
         abs_val_mean = torch.mean(abs_values) / torch.mean(ref_values)
+
         values /= ref_values
+        print("correlation of combined values: ", correlation(values))
         error = torch.norm(values - mean) / num_blocks
 
         abs_values /= ref_values
