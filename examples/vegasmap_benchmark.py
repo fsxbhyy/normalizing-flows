@@ -25,6 +25,11 @@ solution = 0.2773  # order 2
 # solution = -0.03115 # order 3
 integration_domain = [[0, 1]] * dim
 
+num_adapt_samples = 100000
+batchsize = 5000
+niters = 20
+nblocks = 1000
+
 partition = [(order, 0, 0)]
 name = "sigma"
 df = pd.read_csv(os.path.join(root_dir, f"loopBasis_{name}_maxOrder6.csv"))
@@ -40,9 +45,6 @@ for key in partition:
     leafstates.append(state)
     leafvalues.append(values)
 
-num_adapt_samples = 100000
-batchsize = 5000
-niters = 20
 # batchsize = 10**dim
 diagram_adapt = FeynmanDiagram(
     order, loopBasis, leafstates[0], leafvalues[0], num_adapt_samples
@@ -97,7 +99,8 @@ map_torch = VegasMap(
 )
 map_torch = map_torch.to(device)
 
-x, jac = map_torch.forward(torch.Tensor(y, device=device))
+y_tensor = torch.Tensor(y).to(device)
+x, jac = map_torch.forward(y_tensor)
 fx = map_torch.func(x)
 fy = jac * fx
 print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
@@ -134,7 +137,6 @@ def block_results(data, nblocks=100):
     return (mean, std)
 
 
-nblocks = 100
 # with Veags map
 start_time = time.time()
 data = []

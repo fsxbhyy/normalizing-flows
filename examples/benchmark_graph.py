@@ -46,7 +46,7 @@ def func(x):
 
 integration_domain = [[0, 1]] * dim
 map_torch = VegasMap(func, dim, integration_domain, batch_size)
-map_torch.to(device)
+map_torch = map_torch.to(device)
 
 var = torch.rand(batch_size, dim, device=device)
 t0 = benchmark.Timer(
@@ -59,7 +59,7 @@ t0 = benchmark.Timer(
 nfm = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
 nfm.eval()
 nfm.p = diagram
-nfm.to(device)
+nfm = nfm.to(device)
 
 
 t1 = benchmark.Timer(

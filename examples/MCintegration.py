@@ -1,18 +1,45 @@
 import torch
+import pandas as pd
 import time
 from parquetAD import FeynmanDiagram
+from parquetAD import FeynmanDiagram, load_leaf_info
+import os
 
+enable_cuda = True
+device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
+
+root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
+num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0
 Nblocks = 100
 len_chain = 1000
 
+partition = [(order, 0, 0)]
+name = "sigma"
+df = pd.read_csv(os.path.join(root_dir, f"loopBasis_{name}_maxOrder6.csv"))
+with torch.no_grad():
+    # loopBasis = torch.tensor([df[col].iloc[:maxMomNum].tolist() for col in df.columns[:num_loops[order-1]]]).T
+    loopBasis = torch.Tensor(df.iloc[: order + 1, : num_loops[order - 1]].to_numpy())
+leafstates = []
+leafvalues = []
+
+for key in partition:
+    key_str = "".join(map(str, key))
+    state, values = load_leaf_info(root_dir, name, key_str)
+    leafstates.append(state)
+    leafvalues.append(values)
+
 
 def main(blocks, len_chain):
+    diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], blocks)
+
     print("Loading normalizing-flow model")
     start_time = time.time()
     nfm = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
     nfm.eval()
+    nfm.p = diagram
+    nfm = nfm.to(device)
     print("Loading model takes {:.3f}s".format(time.time() - start_time))
 
     batch_size = nfm.p.batchsize
