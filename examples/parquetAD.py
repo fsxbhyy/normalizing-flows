@@ -20,17 +20,18 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0
-batch_size = 100000
+batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
+accum_iter = 10
 
 Nepochs = 300
 Nblocks = 100
 
-# is_save = False
-is_save = True
-has_proposal_nfm = True
+is_save = False
+# is_save = True
+has_proposal_nfm = False
 
 
 def _StringtoIntVector(s):
@@ -312,7 +313,7 @@ def main(argv):
     blocks = Nblocks
 
     # torch.cuda.memory._record_memory_history()
-    tracemalloc.start()
+    # tracemalloc.start()
     start_time = time.time()
     with torch.no_grad():
         mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
@@ -325,19 +326,25 @@ def main(argv):
             blocks * diagram.batchsize, mean, err, nfm.p.targetval
         )
     )
-    snapshot = tracemalloc.take_snapshot()
-    top_stats = snapshot.statistics("lineno")
-    print("[ Top 20 ]")
-    for stat in top_stats[:20]:
-        print(stat)
+    # snapshot = tracemalloc.take_snapshot()
+    # top_stats = snapshot.statistics("lineno")
+    # print("[ Top 20 ]")
+    # for stat in top_stats[:20]:
+    #     print(stat)
 
     if has_proposal_nfm:
         proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
         start_time = time.time()
-        train_model(nfm, epochs, diagram.batchsize, proposal_model=proposal_model)
+        train_model(
+            nfm,
+            epochs,
+            diagram.batchsize,
+            proposal_model=proposal_model,
+            accum_iter=accum_iter,
+        )
     else:
         start_time = time.time()
-        train_model(nfm, epochs, diagram.batchsize)
+        train_model(nfm, epochs, diagram.batchsize, accum_iter)
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
     if is_save:

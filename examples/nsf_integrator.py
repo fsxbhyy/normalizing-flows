@@ -6,10 +6,11 @@ import benchmark
 from scipy.special import erf, gamma
 import vegas
 import time
+# from torch.utils.tensorboard import SummaryWriter
 
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-import h5py  # Make sure to import h5py
+# import h5py
 
 from absl import app, flags
 
@@ -102,15 +103,18 @@ def train_model(
     nfm,
     max_iter=1000,
     num_samples=10000,
+    accum_iter=10,
     has_scheduler=True,
     proposal_model=None,
+    save_checkpoint=True,
 ):
     # Train model
     # Move model on GPU if available
 
     clip = 10.0
 
-    loss_hist = np.array([])
+    loss_hist = []
+    # writer = SummaryWriter()
 
     print("before training \n")
 
@@ -139,50 +143,63 @@ def train_model(
 
         optimizer.zero_grad()
 
-        # Get training samples
-        #     x_np, _ = make_moons(num_samples, noise=0.1)
-        #     x = torch.tensor(x_np).float().to(device)
+        loss_accum = torch.zeros(1, requires_grad=False, device=device)
+        for _ in range(accum_iter):
+            # Compute loss
+            #     if(it<max_iter/2):
+            #         loss = nfm.reverse_kld(num_samples)
+            #     else:
+            if proposal_model is None:
+                loss = nfm.IS_forward_kld(num_samples)
+            else:
+                x = proposal_model.mcmc_sample()
+                loss = nfm.forward_kld(x)
 
-        # Compute loss
-        #     if(it<max_iter/2):
-        #         loss = nfm.reverse_kld(num_samples)
-        #     else:
+            loss = loss / accum_iter
+            loss_accum += loss
+            # Do backprop and optimizer step
+            if ~(torch.isnan(loss) | torch.isinf(loss)):
+                loss.backward()
+                # torch.nn.utils.clip_grad_value_(nfm.parameters(), clip)
 
-        # loss = nfm.forward_kld_mc(num_samples)
-        if proposal_model is None:
-            loss = nfm.IS_forward_kld(num_samples)
-        else:
-            x = proposal_model.mcmc_sample(10)
-            loss = nfm.forward_kld(x)
-        # loss = nfm.reverse_kld(num_samples)
-        # loss = nfm.MCvar(num_samples)
-        # print(loss)
-        # Do backprop and optimizer step
-        if ~(torch.isnan(loss) | torch.isinf(loss)):
-            loss.backward()
-            # torch.nn.utils.clip_grad_value_(nfm.parameters(), clip)
-            torch.nn.utils.clip_grad_norm_(
-                nfm.parameters(), max_norm=1.0
-            )  # Gradient clipping
-            optimizer.step()
-            # Scheduler step after optimizer step
-            if it < warmup_epochs:
-                scheduler_warmup.step()
-            elif has_scheduler:
-                scheduler.step(loss)  # ReduceLROnPlateau
-                # scheduler.step()  # CosineAnnealingLR
+        torch.nn.utils.clip_grad_norm_(
+            nfm.parameters(), max_norm=1.0
+        )  # Gradient clipping
+        optimizer.step()
+        # Scheduler step after optimizer step
+        if it < warmup_epochs:
+            scheduler_warmup.step()
+        elif has_scheduler:
+            scheduler.step(loss_accum)  # ReduceLROnPlateau
+            # scheduler.step()  # CosineAnnealingLR
+        # Log loss
+        loss_hist.append(loss.item())
 
-            # Log loss
-            loss_hist = np.append(loss_hist, loss.item())
+        # # Log metrics
+        # writer.add_scalar("Loss/train", loss.item(), it)
+        # writer.add_scalar("Learning Rate", optimizer.param_groups[0]["lr"], it)
 
-            # print(
-            #     f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}"
-            # )
-            if it % 10 == 0:
-                print(
-                    f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
-                )
+        if it % 10 == 0:
+            print(
+                f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
+            )
 
+        # save checkpoint
+        if it % 100 == 0 and it > 0 and save_checkpoint:
+            torch.save(
+                {
+                    "model_state_dict": nfm.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict()
+                    if has_scheduler
+                    else None,
+                    "loss_hist": loss_hist,
+                    "it": it,
+                },
+                f"checkpoint_{it}.pth",
+            )
+
+    # writer.close()
     print("after training \n")
     # print(nfm.flows[0].pvct.grid)
     # print(nfm.flows[0].pvct.inc)
