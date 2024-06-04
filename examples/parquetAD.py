@@ -25,7 +25,7 @@ hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
-Nepochs = 400
+Nepochs = 100
 Nblocks = 100
 
 # is_save = False
@@ -219,11 +219,18 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def prob(self, var):
         self._evalleaf(var)
-        self.root[:] = (
-            func_sigma_o100.graphfunc(self.leafvalues)
-            # torch.stack(func_sigma_o200.graphfunc(self.leafvalues), dim=0).sum(dim=0)
-            # torch.stack(func_sigma_o300.graphfunc(self.leafvalues), dim=0).sum(dim=0)
-            * self.factor
+        if self.innerLoopNum == 1:
+            self.root[:] = func_sigma_o100.graphfunc(self.leafvalues)
+        elif self.innerLoopNum == 2:
+            self.root[:] = torch.stack(
+                func_sigma_o200.graphfunc(self.leafvalues), dim=0
+            ).sum(dim=0)
+        elif self.innerLoopNum == 3:
+            self.root[:] = torch.stack(
+                func_sigma_o300.graphfunc(self.leafvalues), dim=0
+            ).sum(dim=0)
+        self.root[:] *= (
+            self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
             * (self.beta) ** (self.totalTauNum - 1)
             / (2 * np.pi) ** (self.dim * self.innerLoopNum)
