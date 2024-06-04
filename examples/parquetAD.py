@@ -229,7 +229,7 @@ class FeynmanDiagram(nf.distributions.Target):
             self.root[:] = torch.stack(
                 func_sigma_o300.graphfunc(self.leafvalues), dim=0
             ).sum(dim=0)
-        self.root[:] *= (
+        self.root *= (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
             * (self.beta) ** (self.totalTauNum - 1)
