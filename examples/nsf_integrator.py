@@ -102,6 +102,7 @@ def train_model(
     nfm,
     max_iter=1000,
     num_samples=10000,
+    accum_iter = 10,
     has_scheduler=True,
     proposal_model=None,
 ):
@@ -127,57 +128,60 @@ def train_model(
     scheduler_warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=0.1, total_iters=warmup_epochs
     )
-
+    optimizer.zero_grad()
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
     for it in tqdm(range(max_iter)):
         start_time = time.time()
+        loss_accum = torch.zeros(1, requires_grad=False).to(nfm.p.samples.device)
+        for it_accum in range(accum_iter):
+            # Get training samples
+            #     x_np, _ = make_moons(num_samples, noise=0.1)
+            #     x = torch.tensor(x_np).float().to(device)
 
+            # Compute loss
+            #     if(it<max_iter/2):
+            #         loss = nfm.reverse_kld(num_samples)
+            #     else:
+            
+            # loss = nfm.forward_kld_mc(num_samples)
+            if proposal_model is None:
+                loss = nfm.IS_forward_kld(num_samples)
+            else:
+                x = proposal_model.p.sample()
+                loss = nfm.forward_kld(x)
+            # loss = nfm.reverse_kld(num_samples)
+            # loss = nfm.MCvar(num_samples)
+            # print(loss)
+
+            loss = loss / accum_iter
+            loss_accum += loss
+            # Do backprop and optimizer step
+            if ~(torch.isnan(loss) | torch.isinf(loss)):
+                loss.backward()
+                # torch.nn.utils.clip_grad_value_(nfm.parameters(), clip)
+
+        
+        torch.nn.utils.clip_grad_norm_(
+            nfm.parameters(), max_norm=1.0
+        )  # Gradient clipping
+        optimizer.step()
+        # Scheduler step after optimizer step
+        if it < warmup_epochs:
+            scheduler_warmup.step()
+        elif has_scheduler:
+            scheduler.step(loss_accum)  # ReduceLROnPlateau
+            # scheduler.step()  # CosineAnnealingLR
+        # Log loss
+        loss_hist = np.append(loss_hist, loss.item())
         optimizer.zero_grad()
-
-        # Get training samples
-        #     x_np, _ = make_moons(num_samples, noise=0.1)
-        #     x = torch.tensor(x_np).float().to(device)
-
-        # Compute loss
-        #     if(it<max_iter/2):
-        #         loss = nfm.reverse_kld(num_samples)
-        #     else:
-
-        # loss = nfm.forward_kld_mc(num_samples)
-        if proposal_model is None:
-            loss = nfm.IS_forward_kld(num_samples)
-        else:
-            x = proposal_model.p.sample()
-            loss = nfm.forward_kld(x)
-        # loss = nfm.reverse_kld(num_samples)
-        # loss = nfm.MCvar(num_samples)
-        # print(loss)
-        # Do backprop and optimizer step
-        if ~(torch.isnan(loss) | torch.isinf(loss)):
-            loss.backward()
-            # torch.nn.utils.clip_grad_value_(nfm.parameters(), clip)
-            torch.nn.utils.clip_grad_norm_(
-                nfm.parameters(), max_norm=1.0
-            )  # Gradient clipping
-            optimizer.step()
-            # Scheduler step after optimizer step
-            if it < warmup_epochs:
-                scheduler_warmup.step()
-            elif has_scheduler:
-                scheduler.step(loss)  # ReduceLROnPlateau
-                # scheduler.step()  # CosineAnnealingLR
-
-            # Log loss
-            loss_hist = np.append(loss_hist, loss.item())
-
-            # print(
-            #     f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}"
-            # )
-            if it % 10 == 0:
-                print(
-                    f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
-                )
+        # print(
+        #     f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}"
+        # )
+        if it % 10 == 0:
+            print(
+                f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
+            )
 
     print("after training \n")
     # print(nfm.flows[0].pvct.grid)
