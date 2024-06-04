@@ -6,6 +6,12 @@ import benchmark
 from scipy.special import erf, gamma
 import vegas
 import time
+
+import os
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 # from torch.utils.tensorboard import SummaryWriter
 
 from matplotlib import pyplot as plt
