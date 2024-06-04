@@ -5,6 +5,8 @@ import torch
 import re
 import normflows as nf
 from nsf_integrator import generate_model, train_model
+from functools import partial
+from nsf_multigpu import *
 from funcs_sigma import *
 import time
 
@@ -404,20 +406,46 @@ def main(argv):
     # print("[ Top 20 ]")
     # for stat in top_stats[:20]:
     #     print(stat)
+    n_gpus = torch.cuda.device_count() 
+    world_size = n_gpus
+    
 
     if has_proposal_nfm:
         proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
         start_time = time.time()
-        train_model(
-            nfm,
-            epochs,
-            diagram.batchsize,
-            proposal_model=proposal_model,
-            accum_iter=accum_iter,
-        )
+        if world_size>1:
+            trainfn = partial(train_model_parallel, 
+                              nfm = nfm, 
+                              max_iter=epochs,
+                            num_samples=diagram.batchsize,
+                            accum_iter=accum_iter,
+                            has_scheduler=True,
+                            proposal_model=proposal_model,
+                            save_checkpoint=False)
+            run_train(trainfn, world_size)    
+        else:
+            train_model(
+                nfm,
+                epochs,
+                diagram.batchsize,
+                proposal_model=proposal_model,
+                accum_iter=accum_iter,
+            )
     else:
         start_time = time.time()
-        train_model(nfm, epochs, diagram.batchsize, accum_iter)
+        if world_size>1:
+            trainfn = partial(train_model_parallel, 
+                              nfm = nfm, 
+                              max_iter=epochs,
+                            num_samples=diagram.batchsize,
+                            accum_iter=accum_iter,
+                            has_scheduler=True,
+                            proposal_model=None,
+                            save_checkpoint=False)
+            run_train(trainfn, world_size)  
+        else:  
+            train_model(nfm, epochs, diagram.batchsize, accum_iter)
+
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
     if is_save:
