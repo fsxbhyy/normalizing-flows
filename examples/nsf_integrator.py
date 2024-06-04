@@ -128,6 +128,10 @@ def train_model(
         optimizer, start_factor=0.1, total_iters=warmup_epochs
     )
 
+    if proposal_model is not None:
+        proposal_model.to(device)
+        proposal_model.mcmc_sample(200, init=True)
+
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
     for it in tqdm(range(max_iter)):
@@ -148,7 +152,7 @@ def train_model(
         if proposal_model is None:
             loss = nfm.IS_forward_kld(num_samples)
         else:
-            x = proposal_model.p.sample()
+            x = proposal_model.mcmc_sample(10)
             loss = nfm.forward_kld(x)
         # loss = nfm.reverse_kld(num_samples)
         # loss = nfm.MCvar(num_samples)

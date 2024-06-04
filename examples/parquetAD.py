@@ -25,11 +25,12 @@ hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 
-Nepochs = 100
+Nepochs = 300
 Nblocks = 100
 
 # is_save = False
 is_save = True
+has_proposal_nfm = True
 
 
 def _StringtoIntVector(s):
@@ -330,9 +331,13 @@ def main(argv):
     for stat in top_stats[:20]:
         print(stat)
 
-    proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
-    start_time = time.time()
-    train_model(nfm, epochs, diagram.batchsize, proposal_model=proposal_model)
+    if has_proposal_nfm:
+        proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
+        start_time = time.time()
+        train_model(nfm, epochs, diagram.batchsize, proposal_model=proposal_model)
+    else:
+        start_time = time.time()
+        train_model(nfm, epochs, diagram.batchsize)
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
     if is_save:

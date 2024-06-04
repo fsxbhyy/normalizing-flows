@@ -400,24 +400,24 @@ class NormalizingFlow(nn.Module):
         return histr, bins
 
     @torch.no_grad()
-    def mcmc_sample(self, burn_in=20):
+    def mcmc_sample(self, steps=10, init=False):
         batch_size = self.p.batchsize
         device = self.p.samples.device
         vars_shape = self.p.samples.shape
-        # Initialize chains
-        self.p.samples[:], self.p.log_q[:] = self.q0(batch_size)
-        for flow in self.flows:
-            self.p.samples[:], self.p.log_det[:] = flow(self.p.samples)
-            self.p.log_q -= self.p.log_det
+        if init:  # Initialize chains
+            self.p.samples[:], self.p.log_q[:] = self.q0(batch_size)
+            for flow in self.flows:
+                self.p.samples[:], self.p.log_det[:] = flow(self.p.samples)
+                self.p.log_q -= self.p.log_det
+
         proposed_samples = torch.empty(vars_shape, device=device)
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
         current_prob = torch.abs(self.p.prob(self.p.samples))
-
         new_prob = torch.empty(batch_size, device=device)
 
-        for _ in range(burn_in):
+        for _ in range(steps):
             # Propose new samples using the normalizing flow
             proposed_samples[:], proposed_log_q[:] = self.q0(batch_size)
             for flow in self.flows:
