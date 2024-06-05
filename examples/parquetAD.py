@@ -26,7 +26,7 @@ batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
-accum_iter = 10
+accum_iter = 1
 
 Nepochs = 300
 Nblocks = 100
@@ -233,6 +233,17 @@ class FeynmanDiagram(nf.distributions.Target):
             self.root[:] = torch.stack(
                 func_sigma_o300.graphfunc(self.leafvalues), dim=0
             ).sum(dim=0)
+        elif self.innerLoopNum == 4:
+            self.root[:] = torch.stack(
+                func_sigma_o400.graphfunc(self.leafvalues), dim=0
+            ).sum(dim=0)
+        elif self.innerLoopNum == 5:
+            self.root[:] = torch.stack(
+                func_sigma_o500.graphfunc(self.leafvalues), dim=0
+            ).sum(dim=0)
+        else:
+            raise ValueError("innerLoopNum should be 1-5")
+
         self.root *= (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
@@ -278,6 +289,68 @@ def load_leaf_info(root_dir, name, key_str):
         loop_idx = torch.tensor(df.iloc[:, 5].to_numpy() - 1)
         leafvalues = torch.tensor(df.iloc[:, 0].to_numpy())
     return (leaftypes, leaforders, inTau_idx, outTau_idx, loop_idx), leafvalues
+
+
+def retrain(argv):
+    del argv
+
+    nfm_name = "nfm_o{0}_beta{1}".format(order, beta)
+
+    print("Loading normalizing-flow model: ", nfm_name)
+    nfm = torch.load(nfm_name + ".pt")
+    nfm.eval()
+    nfm = nfm.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+
+    epochs = Nepochs
+    blocks = Nblocks
+
+    start_time = time.time()
+    with torch.no_grad():
+        mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
+    print("Initial integration time: {:.3f}s".format(time.time() - start_time))
+    loss = nfm.loss_block(10, partition_z)
+    print("Initial loss: ", loss)
+    print(
+        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
+            blocks * nfm.p.batchsize, mean, err, nfm.p.targetval
+        )
+    )
+
+    start_time = time.time()
+    train_model(nfm, epochs, nfm.p.batchsize, accum_iter)
+    print("Training time: {:.3f}s \n".format(time.time() - start_time))
+
+    if is_save:
+        torch.save(nfm, nfm_name + "_retrain.pt")
+        torch.save(nfm.state_dict(), nfm_name + "_state_retrain.pt")
+
+    print("Start computing integration...")
+    start_time = time.time()
+    num_hist_bins = 25
+    with torch.no_grad():
+        mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
+            blocks, num_hist_bins
+        )
+    print("Final integration time: {:.3f}s".format(time.time() - start_time))
+    print(
+        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
+            blocks * nfm.p.batchsize, mean, err, nfm.p.targetval
+        )
+    )
+
+    start_time = time.time()
+    mean_mcmc, err_mcmc = nfm.mcmc_integration(
+        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.1
+    )
+    print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
+    print(
+        "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
+            blocks * nfm.p.batchsize, mean_mcmc, err_mcmc, nfm.p.targetval
+        )
+    )
+
+    loss = nfm.loss_block(100, partition_z)
+    print("Final loss: ", loss)
 
 
 def main(argv):
@@ -395,10 +468,7 @@ def main(argv):
 
     start_time = time.time()
     mean_mcmc, err_mcmc = nfm.mcmc_integration(
-        num_blocks=blocks,
-        len_chain=blocks,
-        thinning=1,
-        # alpha=0.2
+        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.1
     )
     print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
     print(
@@ -451,4 +521,5 @@ def main(argv):
 
 if __name__ == "__main__":
     main(1)
+    # retrain(1)
     # app.run(main)

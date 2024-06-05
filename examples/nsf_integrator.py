@@ -110,22 +110,31 @@ def train_model(
     max_iter=1000,
     num_samples=10000,
     accum_iter=10,
+    init_lr=8e-3,
     has_scheduler=True,
     proposal_model=None,
     save_checkpoint=True,
 ):
-    # Train model
-    # Move model on GPU if available
+    """
+    Train a neural network model with gradient accumulation.
 
-    clip = 10.0
+    Args:
+        nfm: The neural network model to train.
+        max_iter: The maximum number of training iterations.
+        num_samples: The number of samples to use for training.
+        accum_iter: The number of iterations to accumulate gradients.
+        has_scheduler: Whether to use a learning rate scheduler.
+        proposal_model: An optional proposal model for sampling.
+        save_checkpoint: Whether to save checkpoints during training every 100 iterations.
+    """
     nfm = nfm.to(device)
     loss_hist = []
-    # writer = SummaryWriter()
+    # writer = SummaryWriter()  # Initialize TensorBoard writer
 
     print("before training \n")
 
     # Initialize optimizer and scheduler
-    optimizer = torch.optim.Adam(nfm.parameters(), lr=8e-3)  # , weight_decay=1e-5)
+    optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
     if has_scheduler:
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -166,20 +175,21 @@ def train_model(
             # Do backprop and optimizer step
             if ~(torch.isnan(loss) | torch.isinf(loss)):
                 loss.backward()
-                # torch.nn.utils.clip_grad_value_(nfm.parameters(), clip)
 
         torch.nn.utils.clip_grad_norm_(
             nfm.parameters(), max_norm=1.0
         )  # Gradient clipping
         optimizer.step()
+
         # Scheduler step after optimizer step
         if it < warmup_epochs:
             scheduler_warmup.step()
         elif has_scheduler:
             scheduler.step(loss_accum)  # ReduceLROnPlateau
             # scheduler.step()  # CosineAnnealingLR
+
         # Log loss
-        loss_hist.append(loss.item())
+        loss_hist.append(loss_accum.item())
 
         # # Log metrics
         # writer.add_scalar("Loss/train", loss.item(), it)
