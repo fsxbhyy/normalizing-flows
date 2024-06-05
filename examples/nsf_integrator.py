@@ -90,7 +90,6 @@ def generate_model(
 
     # Construct flow model
     nfm = nf.NormalizingFlow(base_dist, flows, target)
-    
     return nfm
 
 
@@ -204,7 +203,9 @@ def train_model(
         if it % 100 == 0 and it > 0 and save_checkpoint:
             torch.save(
                 {
-                    "model_state_dict": nfm.state_dict(),
+                    "model_state_dict": nfm.module.state_dict()
+                    if hasattr(nfm, "module")
+                    else nfm.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict()
                     if has_scheduler

@@ -22,7 +22,7 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0
-batch_size = 10000
+batch_size = 100000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
@@ -406,23 +406,24 @@ def main(argv):
     # print("[ Top 20 ]")
     # for stat in top_stats[:20]:
     #     print(stat)
-    n_gpus = torch.cuda.device_count() 
+    n_gpus = torch.cuda.device_count()
     world_size = n_gpus
-    
 
     if has_proposal_nfm:
         proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
         start_time = time.time()
-        if world_size>1:
-            trainfn = partial(train_model_parallel, 
-                              nfm = nfm, 
-                              max_iter=epochs,
-                            num_samples=diagram.batchsize,
-                            accum_iter=accum_iter,
-                            has_scheduler=True,
-                            proposal_model=proposal_model,
-                            save_checkpoint=False)
-            run_train(trainfn, world_size)    
+        if world_size > 1:
+            trainfn = partial(
+                train_model_parallel,
+                nfm=nfm,
+                max_iter=epochs,
+                num_samples=diagram.batchsize,
+                accum_iter=accum_iter,
+                has_scheduler=True,
+                proposal_model=proposal_model,
+                save_checkpoint=False,
+            )
+            run_train(trainfn, world_size)
         else:
             train_model(
                 nfm,
@@ -433,18 +434,27 @@ def main(argv):
             )
     else:
         start_time = time.time()
-        if world_size>1:
-            trainfn = partial(train_model_parallel, 
-                              nfm = nfm, 
-                              max_iter=epochs,
-                            num_samples=diagram.batchsize,
-                            accum_iter=accum_iter,
-                            has_scheduler=True,
-                            proposal_model=None,
-                            save_checkpoint=False)
-            run_train(trainfn, world_size)  
-        else:  
-            train_model(nfm, epochs, diagram.batchsize, accum_iter)
+        if world_size > 1:
+            trainfn = partial(
+                train_model_parallel,
+                nfm=nfm,
+                max_iter=epochs,
+                num_samples=diagram.batchsize,
+                accum_iter=accum_iter,
+                has_scheduler=True,
+                proposal_model=None,
+                save_checkpoint=False,
+            )
+            run_train(trainfn, world_size)
+        else:
+            print("initial learning rate: 1e-4")
+            train_model(
+                nfm,
+                epochs,
+                diagram.batchsize,
+                accum_iter,
+                init_lr=1e-4,
+            )
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
 

@@ -400,7 +400,7 @@ class NormalizingFlow(nn.Module):
         return histr, bins
 
     @torch.no_grad()
-    def mcmc_sample(self, steps=10, init=False):
+    def mcmc_sample(self, steps=1, init=False):
         batch_size = self.p.batchsize
         device = self.p.samples.device
         vars_shape = self.p.samples.shape
