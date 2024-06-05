@@ -90,7 +90,7 @@ def generate_model(
 
     # Construct flow model
     nfm = nf.NormalizingFlow(base_dist, flows, target)
-    nfm = nfm.to(device)
+    
     return nfm
 
 
@@ -118,7 +118,7 @@ def train_model(
     # Move model on GPU if available
 
     clip = 10.0
-
+    nfm = nfm.to(device)
     loss_hist = []
     # writer = SummaryWriter()
 

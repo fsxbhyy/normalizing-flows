@@ -82,7 +82,7 @@ def train_model_parallel(
 
         optimizer.zero_grad()
 
-        loss_accum = torch.zeros(1, requires_grad=False, device=device)
+        loss_accum = torch.zeros(1, requires_grad=False, device=rank)
         for _ in range(accum_iter):
             # Compute loss
             #     if(it<max_iter/2):
