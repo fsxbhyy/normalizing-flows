@@ -453,7 +453,6 @@ def main(argv):
                 epochs,
                 diagram.batchsize,
                 accum_iter,
-                init_lr=1e-4,
             )
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
