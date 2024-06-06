@@ -4,8 +4,6 @@ from funcs_sigma import *
 from parquetAD import FeynmanDiagram, load_leaf_info
 import os
 import torch.utils.benchmark as benchmark
-import vegas
-from vegas_torch import VegasMap
 import numpy as np
 
 enable_cuda = True
@@ -38,44 +36,21 @@ for key in partition:
 diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
 
 
-# Vegas
-@vegas.batchintegrand
-def func(x):
-    return torch.Tensor.numpy(diagram.prob(torch.Tensor(x)))
-
-
-integration_domain = [[0, 1]] * dim
-map_torch = VegasMap(diagram, dim, integration_domain, batch_size)
-map_torch = map_torch.to(device)
-
 var = torch.rand(batch_size, dim, device=device)
-t0 = benchmark.Timer(
-    stmt="map_torch.forward(var)",
-    globals={"map_torch": map_torch, "var": var},
-    label="Self-energy diagram (order {0} beta {1})".format(order, beta),
-    sub_label="sampling using VEAGS map (batchsize {0})".format(batch_size)",
-)
-
-nfm = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
-nfm.eval()
-nfm.p = diagram
-nfm = nfm.to(device)
-
 
 t1 = benchmark.Timer(
-    stmt="nfm.forward(var)",
-    globals={"nfm": nfm, "var": var},
+    stmt="diagram.prob(var)",
+    globals={"diagram": diagram, "var": var},
     label="Self-energy diagram (order {0} beta {1})".format(order, beta),
-    sub_label="sampling using normalizing flow (batchsize {0})".format(batch_size)",
+    sub_label="Evaluating integrand (batchsize {0})".format(batch_size),
 )
 
 t2 = benchmark.Timer(
-    stmt="nfm.p.prob(var)",
-    globals={"nfm": nfm, "var": var},
+    stmt="diagram.prob(var, 1)",
+    globals={"diagram": diagram, "var": var},
     label="Self-energy diagram (order {0} beta {1})".format(order, beta),
-    sub_label="Evaluating integrand (batchsize {0})".format(batch_size)",
+    sub_label="Evaluating integrand with jit (batchsize {0})".format(batch_size),
 )
 
-print(t0.timeit(Neval))
 print(t1.timeit(Neval))
 print(t2.timeit(Neval))

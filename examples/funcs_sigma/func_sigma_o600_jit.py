@@ -1,3 +1,7 @@
+import torch
+
+
+@torch.jit.script
 def graphfunc(leaf):
     g241011 = leaf[:, 0]
     g294129 = leaf[:, 1]

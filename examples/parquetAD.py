@@ -22,12 +22,13 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0
-batch_size = 100000
+batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 accum_iter = 1
 
+init_lr = 8e-3
 Nepochs = 300
 Nblocks = 100
 
@@ -221,7 +222,7 @@ class FeynmanDiagram(nf.distributions.Target):
         self.leafvalues = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
 
     @torch.no_grad()
-    def prob(self, var):
+    def prob(self, var, idx=0):
         self._evalleaf(var)
         if self.innerLoopNum == 1:
             self.root[:] = func_sigma_o100.graphfunc(self.leafvalues)
@@ -240,6 +241,14 @@ class FeynmanDiagram(nf.distributions.Target):
         elif self.innerLoopNum == 5:
             self.root[:] = torch.stack(
                 func_sigma_o500.graphfunc(self.leafvalues), dim=0
+            ).sum(dim=0)
+        elif self.innerLoopNum == 6 and idx == 0:
+            self.root[:] = torch.stack(
+                func_sigma_o600.graphfunc(self.leafvalues), dim=0
+            ).sum(dim=0)
+        elif self.innerLoopNum == 6 and idx == 1:
+            self.root[:] = torch.stack(
+                func_sigma_o600_jit.graphfunc(self.leafvalues), dim=0
             ).sum(dim=0)
         else:
             raise ValueError("innerLoopNum should be 1-5")
@@ -406,6 +415,7 @@ def main(argv):
     # print("[ Top 20 ]")
     # for stat in top_stats[:20]:
     #     print(stat)
+
     n_gpus = torch.cuda.device_count()
     world_size = n_gpus
 
@@ -447,13 +457,8 @@ def main(argv):
             )
             run_train(trainfn, world_size)
         else:
-            print("initial learning rate: 1e-4")
-            train_model(
-                nfm,
-                epochs,
-                diagram.batchsize,
-                accum_iter,
-            )
+            print("initial learning rate: ", init_lr)
+            train_model(nfm, epochs, diagram.batchsize, accum_iter, init_lr)
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
@@ -503,27 +508,27 @@ def main(argv):
         ),
     )
 
-    plt.figure(figsize=(15, 12))
-    for ndim in range(diagram.ndims):
-        plt.stairs(histr[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim))
-    plt.legend()
-    plt.savefig(
-        "histogram_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
-            order, beta, hidden_layers, num_hidden_channels, num_bins
-        )
-    )
+    # plt.figure(figsize=(15, 12))
+    # for ndim in range(diagram.ndims):
+    #     plt.stairs(histr[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim))
+    # plt.legend()
+    # plt.savefig(
+    #     "histogram_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
+    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #     )
+    # )
 
-    plt.figure(figsize=(15, 12))
-    for ndim in range(diagram.ndims):
-        plt.stairs(
-            histr_weight[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim)
-        )
-    plt.legend()
-    plt.savefig(
-        "histogramWeight_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
-            order, beta, hidden_layers, num_hidden_channels, num_bins
-        )
-    )
+    # plt.figure(figsize=(15, 12))
+    # for ndim in range(diagram.ndims):
+    #     plt.stairs(
+    #         histr_weight[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim)
+    #     )
+    # plt.legend()
+    # plt.savefig(
+    #     "histogramWeight_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
+    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #     )
+    # )
 
     # torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
 
