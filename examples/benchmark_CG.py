@@ -11,7 +11,7 @@ device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "
 
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 1
+order = 5
 dim = 4 * order - 1
 beta = 10.0
 batch_size = 10000
@@ -52,5 +52,7 @@ t2 = benchmark.Timer(
     sub_label="Evaluating integrand with jit (batchsize {0})".format(batch_size),
 )
 
+print(t1.timeit(Neval))
+print(t2.timeit(Neval))
 print(t1.timeit(Neval))
 print(t2.timeit(Neval))

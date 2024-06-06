@@ -238,9 +238,13 @@ class FeynmanDiagram(nf.distributions.Target):
             self.root[:] = torch.stack(
                 func_sigma_o400.graphfunc(self.leafvalues), dim=0
             ).sum(dim=0)
-        elif self.innerLoopNum == 5:
+        elif self.innerLoopNum == 5 and idx == 0:
             self.root[:] = torch.stack(
                 func_sigma_o500.graphfunc(self.leafvalues), dim=0
+            ).sum(dim=0)
+        elif self.innerLoopNum == 5 and idx == 1:
+            self.root[:] = torch.stack(
+                func_sigma_o500_jit.graphfunc(self.leafvalues), dim=0
             ).sum(dim=0)
         elif self.innerLoopNum == 6 and idx == 0:
             self.root[:] = torch.stack(
