@@ -15,7 +15,7 @@ order = 5
 dim = 4 * order - 1
 beta = 10.0
 batch_size = 10000
-Neval = 10
+Neval = 20
 
 partition = [(order, 0, 0)]
 name = "sigma"
@@ -34,12 +34,12 @@ for key in partition:
 
 # for batchsize in [10**i for i in range(0, 7)]:
 diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
-
+diagram = diagram.to(device)
 
 var = torch.rand(batch_size, dim, device=device)
 
 t1 = benchmark.Timer(
-    stmt="diagram.prob(var)",
+    stmt="diagram.prob(var, 0)",
     globals={"diagram": diagram, "var": var},
     label="Self-energy diagram (order {0} beta {1})".format(order, beta),
     sub_label="Evaluating integrand (batchsize {0})".format(batch_size),

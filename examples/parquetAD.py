@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import re
 import normflows as nf
-from nsf_integrator import generate_model, train_model
+from nsf_integrator import generate_model, train_model, train_model_annealing
 from functools import partial
 from nsf_multigpu import *
 from funcs_sigma import *
@@ -21,25 +21,50 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
-beta = 10.0
-batch_size = 10000
+beta = 32.0
+batch_size = 20000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 accum_iter = 1
 
 init_lr = 8e-3
-Nepochs = 300
+Nepochs = 700
 Nblocks = 100
 
-is_save = False
-# is_save = True
+# is_save = False
+is_save = True
 has_proposal_nfm = False
+is_annealing = True
 
 
 def _StringtoIntVector(s):
     pattern = r"[-+]?\d+"
     return [int(match) for match in re.findall(pattern, s)]
+
+
+def chemical_potential(beta):
+    if beta == 1.0:
+        _mu = -0.021460754987022185
+    elif beta == 2.0:
+        _mu = 0.7431120842589388
+    elif beta == 4.0:
+        _mu = 0.9426157552012961
+    elif beta == 8.0:
+        _mu = 0.986801399943294
+    elif beta == 10.0:
+        _mu = 0.9916412363704453
+    elif beta == 16.0:
+        _mu = 0.9967680535828609
+    elif beta == 32.0:
+        _mu = 0.9991956396090637
+    elif beta == 64.0:
+        _mu = 0.9997991296749593
+    elif beta == 128.0:
+        _mu = 0.9999497960580543
+    else:
+        _mu = 1.0
+    return _mu
 
 
 class FeynmanDiagram(nf.distributions.Target):
@@ -70,15 +95,8 @@ class FeynmanDiagram(nf.distributions.Target):
         # Derived constants
         self.register_buffer("kF", (9 * pi / (2 * self.spin)) ** (1 / 3) / self.rs)
         self.register_buffer("EF", self.kF**2 / (2 * self.me))
-        self.register_buffer("mu", self.EF)
         self.register_buffer("beta", beta / self.EF)
-        if beta == 1.0:
-            _mu = -0.021460754987022185
-        elif beta == 10.0:
-            _mu = 0.9916412363704453
-        else:
-            _mu = 1.0
-        self.register_buffer("mu", _mu * self.EF)
+        self.register_buffer("mu", chemical_potential(beta) * self.EF)
         self.register_buffer("maxK", 10 * self.kF)
 
         print(
@@ -222,7 +240,7 @@ class FeynmanDiagram(nf.distributions.Target):
         self.leafvalues = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
 
     @torch.no_grad()
-    def prob(self, var, idx=0):
+    def prob(self, var, idx=1):
         self._evalleaf(var)
         if self.innerLoopNum == 1:
             self.root[:] = func_sigma_o100.graphfunc(self.leafvalues)
@@ -462,7 +480,12 @@ def main(argv):
             run_train(trainfn, world_size)
         else:
             print("initial learning rate: ", init_lr)
-            train_model(nfm, epochs, diagram.batchsize, accum_iter, init_lr)
+            if is_annealing:
+                train_model_annealing(
+                    nfm, epochs, diagram.batchsize, accum_iter, init_lr
+                )
+            else:
+                train_model(nfm, epochs, diagram.batchsize, accum_iter, init_lr)
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
