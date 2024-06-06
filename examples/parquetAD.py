@@ -29,13 +29,14 @@ num_bins = 8
 accum_iter = 1
 
 init_lr = 8e-3
-Nepochs = 700
+Nepochs = 400
 Nblocks = 100
 
-# is_save = False
-is_save = True
+is_save = False
+# is_save = True
+# is_annealing = True
+is_annealing = False
 has_proposal_nfm = False
-is_annealing = True
 
 
 def _StringtoIntVector(s):
@@ -490,8 +491,8 @@ def main(argv):
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
     if is_save:
-        torch.save(nfm, "nfm_o{0}_beta{1}_r1.pt".format(order, beta))
-        torch.save(nfm.state_dict(), "nfm_o{0}_beta{1}_state_r1.pt".format(order, beta))
+        torch.save(nfm, "nfm_o{0}_beta{1}.pt".format(order, beta))
+        torch.save(nfm.state_dict(), "nfm_o{0}_beta{1}_state.pt".format(order, beta))
 
     print("Start computing integration...")
     start_time = time.time()

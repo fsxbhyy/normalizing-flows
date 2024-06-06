@@ -225,19 +225,12 @@ def rational_quadratic_spline(
         bin_idx = searchsorted(cumheights, inputs)[..., None]
     else:
         bin_idx = searchsorted(cumwidths, inputs)[..., None]
+
+    torch.clamp(
+        bin_idx, 0, num_bins - 1, out=bin_idx
+    )  # Ensure bin_idx is within valid range
     input_cumwidths = cumwidths.gather(-1, bin_idx)[..., 0]
-    try:
-        input_bin_widths = widths.gather(-1, bin_idx)[..., 0]
-    except RuntimeError as e:
-        torch.save(cumwidths, "cumwidths.pt")
-        torch.save(inputs, "inputs.pt")
-        torch.save(widths, "widths.pt")
-        torch.save(bin_idx, "bin_idx.pt")
-        print("cumwidths: ", cumwidths)
-        print("inputs: ", inputs)
-        print("widths: ", widths)
-        print("bin_idx: ", bin_idx)
-        raise e
+    input_bin_widths = widths.gather(-1, bin_idx)[..., 0]
 
     input_cumheights = cumheights.gather(-1, bin_idx)[..., 0]
     delta = heights / widths

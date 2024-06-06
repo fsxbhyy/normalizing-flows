@@ -310,10 +310,9 @@ def train_model_annealing(
             )
 
         if (
-            it > 20
-            and current_beta < final_beta
-            and current_lr < lr_threshold
-            and np.std(loss_hist[-20:]) < 4e-4
+            it > 20 and current_beta < final_beta and it % 60 == 0
+            # and current_lr < lr_threshold
+            # and np.std(loss_hist[-20:]) < 4e-4
         ):
             print(f"Saving NF model with beta={current_beta}...")
             torch.save(
