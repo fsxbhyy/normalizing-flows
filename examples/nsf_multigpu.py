@@ -72,7 +72,7 @@ def train_model_parallel(
     )
 
     if proposal_model is not None:
-        proposal_model.to(device)
+        proposal_model.to(rank)
         proposal_model.mcmc_sample(200, init=True)
 
     # for name, module in ddp_model.named_modules():
@@ -89,10 +89,10 @@ def train_model_parallel(
             #         loss = ddp_model.reverse_kld(num_samples)
             #     else:
             if proposal_model is None:
-                loss = ddp_model.IS_forward_kld(num_samples)
+                loss = ddp_model.module.IS_forward_kld(num_samples)
             else:
                 x = proposal_model.mcmc_sample()
-                loss = ddp_model.forward_kld(x)
+                loss = ddp_model.module.forward_kld(x)
 
             loss = loss / accum_iter
             loss_accum += loss
@@ -102,7 +102,7 @@ def train_model_parallel(
                 # torch.nn.utils.clip_grad_value_(ddp_model.parameters(), clip)
 
         torch.nn.utils.clip_grad_norm_(
-            ddp_model.parameters(), max_norm=1.0
+            ddp_model.module.parameters(), max_norm=1.0
         )  # Gradient clipping
         optimizer.step()
         # Scheduler step after optimizer step
