@@ -196,7 +196,7 @@ def train_model(
 
         if it % 10 == 0:
             print(
-                f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
+                f"Iteration {it}, Loss: {loss_accum.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
             )
 
         # save checkpoint
@@ -306,7 +306,7 @@ def train_model_annealing(
 
         if it % 10 == 0:
             print(
-                f"Iteration {it}, beta: {current_beta}, Loss: {loss.item()}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
+                f"Iteration {it}, beta: {current_beta}, Loss: {loss_accum.item()}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
             )
 
         if (

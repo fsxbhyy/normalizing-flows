@@ -223,13 +223,9 @@ class FeynmanDiagram(nf.distributions.Target):
         self.tau *= self.beta
 
         kq = self.loops[:, :, self.leafMomIdx]
-        # print("test1:", lftype, self.p, self.loops.shape, self.loopBasis[:, :2], kq)
         self.kq2[:] = torch.sum(kq * kq, dim=1)
         self.dispersion[:] = self.kq2 / (2 * self.me) - self.mu
-        # print("test2:",self.loops.shape, eps.shape, tau.shape, leaf_tau_i.shape)
-        # order = lforders[0]
         self.kernelFermiT()
-        # print("var", kq2, self.mu, kernelFermiT(tau, eps, self.beta), tau, eps, self.beta)
         # Calculate bosonic leaves
         self.invK[:] = 1.0 / (self.kq2 + self.mass2)
         self.leaf_bose[:] = ((self.e0**2 / self.eps0) * self.invK) * (

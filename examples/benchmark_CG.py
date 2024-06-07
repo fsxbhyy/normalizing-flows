@@ -35,6 +35,7 @@ for key in partition:
 # for batchsize in [10**i for i in range(0, 7)]:
 diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
 diagram = diagram.to(device)
+sigma_diagram = torch.jit.load("traced_Sigma_o5.pt")
 
 var = torch.rand(batch_size, dim, device=device)
 
@@ -49,10 +50,16 @@ t2 = benchmark.Timer(
     stmt="diagram.prob(var, 1)",
     globals={"diagram": diagram, "var": var},
     label="Self-energy diagram (order {0} beta {1})".format(order, beta),
-    sub_label="Evaluating integrand with jit (batchsize {0})".format(batch_size),
+    sub_label="Evaluating integrand with jit.script (batchsize {0})".format(batch_size),
+)
+
+t3 = benchmark.Timer(
+    stmt="sigma_diagram.func500(var)",
+    globals={"sigma_diagram": sigma_diagram, "var": var},
+    label="Sigma function (order {0} beta {1})".format(order, beta),
+    sub_label="Evaluating integrand with jit.trace (batchsize {0})".format(batch_size),
 )
 
 print(t1.timeit(Neval))
 print(t2.timeit(Neval))
-print(t1.timeit(Neval))
-print(t2.timeit(Neval))
+print(t3.timeit(Neval))
