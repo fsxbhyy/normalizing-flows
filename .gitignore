@@ -133,5 +133,6 @@ dmypy.json
 
 *.pdf
 *.png
-*.pt
-*.pth
+examples/*.pt
+examples/*.pth
+examples/data/*.pt
