@@ -17,12 +17,11 @@ import tracemalloc
 # warn_tensor_cycles()
 
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
-# include(os.path.join(root_dir, f"func_sigma_o100.py"))
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
-beta = 32.0
-batch_size = 20000
+beta = 1.0
+batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
@@ -155,6 +154,31 @@ class FeynmanDiagram(nf.distributions.Target):
         self.extn = 0
         self.targetval = 4.0
 
+        if batchsize in [1e3, 1e4, 1e5]:
+            Sigma_diagrams = torch.jit.load(
+                os.path.join(
+                    os.path.dirname(__file__),
+                    f"funcs_sigma/traced_Sigma_{batch_size:.0e}.pt",
+                )
+            )
+            self.funcmap = {
+                1: Sigma_diagrams.func100,
+                2: Sigma_diagrams.func200,
+                3: Sigma_diagrams.func300,
+                4: Sigma_diagrams.func400,
+                5: Sigma_diagrams.func500,
+                6: Sigma_diagrams.func600,
+            }
+        else:
+            self.funcmap = {
+                1: func_sigma_o100.graphfunc,
+                2: func_sigma_o200.graphfunc,
+                3: func_sigma_o300.graphfunc,
+                4: func_sigma_o400.graphfunc,
+                5: func_sigma_o500.graphfunc,
+                6: func_sigma_o600.graphfunc,
+            }
+
     @torch.no_grad()
     def kernelFermiT(self):
         sign = torch.where(self.tau > 0, 1.0, -1.0)
@@ -237,41 +261,14 @@ class FeynmanDiagram(nf.distributions.Target):
         self.leafvalues = torch.where(self.isbose, self.leaf_bose, self.leafvalues)
 
     @torch.no_grad()
-    def prob(self, var, idx=1):
+    def prob(self, var):
         self._evalleaf(var)
         if self.innerLoopNum == 1:
-            self.root[:] = func_sigma_o100.graphfunc(self.leafvalues)
-        elif self.innerLoopNum == 2:
-            self.root[:] = torch.stack(
-                func_sigma_o200.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 3:
-            self.root[:] = torch.stack(
-                func_sigma_o300.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 4:
-            self.root[:] = torch.stack(
-                func_sigma_o400.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 5 and idx == 0:
-            self.root[:] = torch.stack(
-                func_sigma_o500.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 5 and idx == 1:
-            self.root[:] = torch.stack(
-                func_sigma_o500_jit.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 6 and idx == 0:
-            self.root[:] = torch.stack(
-                func_sigma_o600.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 6 and idx == 1:
-            self.root[:] = torch.stack(
-                func_sigma_o600_jit.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
+            self.root[:] = self.funcmap[1](self.leafvalues)
         else:
-            raise ValueError("innerLoopNum should be 1-5")
-
+            self.root[:] = torch.stack(
+                self.funcmap[self.innerLoopNum](self.leafvalues), dim=0
+            ).sum(dim=0)
         self.root *= (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
@@ -336,7 +333,7 @@ def retrain(argv):
     with torch.no_grad():
         mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(10, partition_z)
+    loss = nfm.loss_block(100, partition_z)
     print("Initial loss: ", loss)
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -388,7 +385,6 @@ def main(argv):
     name = "sigma"
     df = pd.read_csv(os.path.join(root_dir, f"loopBasis_{name}_maxOrder6.csv"))
     with torch.no_grad():
-        # loopBasis = torch.tensor([df[col].iloc[:maxMomNum].tolist() for col in df.columns[:num_loops[order-1]]]).T
         loopBasis = torch.Tensor(
             df.iloc[: order + 1, : num_loops[order - 1]].to_numpy()
         )
@@ -409,9 +405,9 @@ def main(argv):
         num_hidden_channels=num_hidden_channels,
         num_bins=num_bins,
     )
-    for name, param in nfm.named_parameters():
-        if param.requires_grad:
-            print(name, param.data.shape)
+    # for name, param in nfm.named_parameters():
+    #     if param.requires_grad:
+    #         print(name, param.data.shape)
     epochs = Nepochs
     blocks = Nblocks
 

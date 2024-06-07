@@ -6,5 +6,3 @@ from . import func_sigma_o300
 from . import func_sigma_o400
 from . import func_sigma_o500
 from . import func_sigma_o600
-from . import func_sigma_o500_jit
-from . import func_sigma_o600_jit
