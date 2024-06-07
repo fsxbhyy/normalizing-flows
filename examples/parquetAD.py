@@ -405,9 +405,9 @@ def main(argv):
         num_hidden_channels=num_hidden_channels,
         num_bins=num_bins,
     )
-    # for name, param in nfm.named_parameters():
-    #     if param.requires_grad:
-    #         print(name, param.data.shape)
+    for name, param in nfm.named_parameters():
+        if param.requires_grad:
+            print(name, param.data.shape)
     epochs = Nepochs
     blocks = Nblocks
 
