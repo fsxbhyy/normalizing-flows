@@ -55,7 +55,9 @@ for key in partition:
 
 # batchsize = 100000
 batchsize = 3968
-diagram = FeynmanDiagram(loopBasis, leafstates[0], leafvalues[0], batchsize)
+diagram = FeynmanDiagram(
+    order, beta, loopBasis, leafstates[0], leafvalues[0], batchsize
+)
 
 integration_domain = [[0, 1]] * dim
 vegas = VEGAS()

@@ -20,7 +20,7 @@ root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
-beta = 1.0
+beta = 0.1
 batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
@@ -28,7 +28,7 @@ num_bins = 8
 accum_iter = 1
 
 init_lr = 8e-3
-Nepochs = 400
+Nepochs = 100
 Nblocks = 100
 
 is_save = False
@@ -44,7 +44,9 @@ def _StringtoIntVector(s):
 
 
 def chemical_potential(beta):
-    if beta == 1.0:
+    if beta == 0.1:
+        _mu = -37.301528674058275
+    elif beta == 1.0:
         _mu = -0.021460754987022185
     elif beta == 2.0:
         _mu = 0.7431120842589388
@@ -69,7 +71,7 @@ def chemical_potential(beta):
 
 class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
-    def __init__(self, order, loopBasis, leafstates, leafvalues, batchsize):
+    def __init__(self, order, beta, loopBasis, leafstates, leafvalues, batchsize):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
         # Unpack leafstates for clarity
         lftype, lforders, leaf_tau_i, leaf_tau_o, leafMomIdx = leafstates
@@ -397,7 +399,9 @@ def main(argv):
         leafstates.append(state)
         leafvalues.append(values)
 
-    diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
+    diagram = FeynmanDiagram(
+        order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
+    )
 
     nfm = generate_model(
         diagram,
@@ -483,8 +487,18 @@ def main(argv):
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
     if is_save:
-        torch.save(nfm, "nfm_o{0}_beta{1}.pt".format(order, beta))
-        torch.save(nfm.state_dict(), "nfm_o{0}_beta{1}_state.pt".format(order, beta))
+        torch.save(
+            nfm,
+            "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+                order, beta, hidden_layers, num_hidden_channels, num_bins
+            ),
+        )
+        torch.save(
+            nfm.state_dict(),
+            "nfm_o{0}_beta{1}_state_l{2}c{3}b{4}.pt".format(
+                order, beta, hidden_layers, num_hidden_channels, num_bins
+            ),
+        )
 
     print("Start computing integration...")
     start_time = time.time()

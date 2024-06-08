@@ -35,7 +35,7 @@ for key in partition:
     leafvalues.append(values)
 
 # for batchsize in [10**i for i in range(0, 7)]:
-diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
+diagram = FeynmanDiagram(order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size)
 
 
 # Vegas

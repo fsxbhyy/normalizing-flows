@@ -37,7 +37,9 @@ def benchmark_diagram(order, beta, batch_size):
         leafstates.append(state)
         leafvalues.append(values)
 
-    diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
+    diagram = FeynmanDiagram(
+        order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
+    )
     diagram = diagram.to(device)
 
     var = torch.rand(batch_size, dim, device=device)

@@ -337,8 +337,8 @@ class NormalizingFlow(nn.Module):
             for j in range(0, num_blocks):
                 means_t[j] = (means_t[k] + means_t[k + 1]) / 2.0
                 k += 2
-        mean_combined = torch.mean(means_t)
-        std_combined = torch.std(means_t) / num_blocks**0.5
+        mean_combined = torch.mean(means_t[:num_blocks])
+        std_combined = torch.std(means_t[:num_blocks]) / num_blocks**0.5
 
         return (
             mean_combined,

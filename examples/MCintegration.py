@@ -32,8 +32,13 @@ for key in partition:
     leafvalues.append(values)
 
 
-def main(blocks, len_chain, batch_size):
-    diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
+def main(blocks, beta, len_chain, batch_size):
+    print(
+        f"{blocks} blocks, {len_chain} samples per markov chain, batch size {batch_size}"
+    )
+    diagram = FeynmanDiagram(
+        order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
+    )
 
     print("Loading normalizing-flow model")
     start_time = time.time()
@@ -57,7 +62,7 @@ def main(blocks, len_chain, batch_size):
         )
     )
 
-    for alpha in [0.0, 0.5, 1.0]:
+    for alpha in [0.0, 0.1, 0.5, 0.8, 1.0]:
         start_time = time.time()
         mean_mcmc, err_mcmc = nfm.mcmc_integration(
             num_blocks=blocks, len_chain=len_chain, thinning=1, alpha=alpha
@@ -66,10 +71,10 @@ def main(blocks, len_chain, batch_size):
         print("alpha = ", alpha)
         print(
             "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n".format(
-                blocks * batch_size, mean_mcmc, err_mcmc
+                len_chain * batch_size, mean_mcmc, err_mcmc
             )
         )
 
 
 if __name__ == "__main__":
-    main(Nblocks, len_chain, batch_size)
+    main(Nblocks, beta, len_chain, batch_size)
