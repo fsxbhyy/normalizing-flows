@@ -18,7 +18,7 @@ Neval = 40
 
 
 def benchmark_diagram(order, beta, batch_size):
-    root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
+    root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
     num_loops = [2, 6, 15, 39, 111, 448]
     partition = [(order, 0, 0)]
     name = "sigma"

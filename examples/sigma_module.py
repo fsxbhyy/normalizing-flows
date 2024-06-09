@@ -11,19 +11,19 @@ class Sigma(nn.Module):
         pass
 
     def func100(self, x):
-        return func_sigma_o100.graphfunc(x)
+        return eval_graph100(x)
 
     def func200(self, x):
-        return func_sigma_o200.graphfunc(x)
+        return eval_graph200(x)
 
     def func300(self, x):
-        return func_sigma_o300.graphfunc(x)
+        return eval_graph300(x)
 
     def func400(self, x):
-        return func_sigma_o400.graphfunc(x)
+        return eval_graph400(x)
 
     def func500(self, x):
-        return func_sigma_o500.graphfunc(x)
+        return eval_graph500(x)
 
     def func600(self, x):
-        return func_sigma_o600.graphfunc(x)
+        return eval_graph600(x)

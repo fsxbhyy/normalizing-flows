@@ -16,11 +16,12 @@ import tracemalloc
 
 # warn_tensor_cycles()
 
-root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
+root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
+num_roots = [1, 2, 3, 4, 5, 6]
 order = 1
-beta = 0.1
+beta = 1.0
 batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
@@ -36,6 +37,16 @@ is_save = False
 # is_annealing = True
 is_annealing = False
 has_proposal_nfm = False
+
+print("beta:", beta, "order:", order, "batchsize:", batch_size)
+print(
+    "hidden_layers:",
+    hidden_layers,
+    "num_hidden_channels:",
+    num_hidden_channels,
+    "num_bins:",
+    num_bins,
+)
 
 
 def _StringtoIntVector(s):
@@ -143,7 +154,7 @@ class FeynmanDiagram(nf.distributions.Target):
         self.register_buffer("leaf_fermi", torch.zeros_like(self.leafvalues))
         self.register_buffer("leaf_bose", torch.zeros_like(self.leafvalues))
         self.register_buffer("factor", torch.ones([self.batchsize]))
-        self.register_buffer("root", torch.ones([self.batchsize]))
+        self.register_buffer("root", torch.ones([self.batchsize, num_roots[order - 1]]))
 
         self.register_buffer("samples", torch.zeros([self.batchsize, self.ndims]))
         self.register_buffer("log_q", torch.zeros([self.batchsize]))
@@ -156,30 +167,30 @@ class FeynmanDiagram(nf.distributions.Target):
         self.extn = 0
         self.targetval = 4.0
 
-        if batchsize in [1e3, 1e4, 1e5]:
-            Sigma_diagrams = torch.jit.load(
-                os.path.join(
-                    os.path.dirname(__file__),
-                    f"funcs_sigma/traced_Sigma_{batch_size:.0e}.pt",
-                )
-            )
-            self.funcmap = {
-                1: Sigma_diagrams.func100,
-                2: Sigma_diagrams.func200,
-                3: Sigma_diagrams.func300,
-                4: Sigma_diagrams.func400,
-                5: Sigma_diagrams.func500,
-                6: Sigma_diagrams.func600,
-            }
-        else:
-            self.funcmap = {
-                1: func_sigma_o100.graphfunc,
-                2: func_sigma_o200.graphfunc,
-                3: func_sigma_o300.graphfunc,
-                4: func_sigma_o400.graphfunc,
-                5: func_sigma_o500.graphfunc,
-                6: func_sigma_o600.graphfunc,
-            }
+        # if batchsize in [1e3, 1e4, 1e5]:
+        #     Sigma_diagrams = torch.jit.load(
+        #         os.path.join(
+        #             os.path.dirname(__file__),
+        #             f"funcs_sigma/traced_Sigma_{batch_size:.0e}.pt",
+        #         )
+        #     )
+        #     self.funcmap = {
+        #         1: Sigma_diagrams.func100,
+        #         2: Sigma_diagrams.func200,
+        #         3: Sigma_diagrams.func300,
+        #         4: Sigma_diagrams.func400,
+        #         5: Sigma_diagrams.func500,
+        #         6: Sigma_diagrams.func600,
+        #     }
+        # else:
+        self.funcmap = {
+            1: eval_graph100,
+            2: eval_graph200,
+            3: eval_graph300,
+            4: eval_graph400,
+            5: eval_graph500,
+            # 6: eval_graph600.graphfunc,
+        }
 
     @torch.no_grad()
     def kernelFermiT(self):
@@ -265,24 +276,31 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def prob(self, var):
         self._evalleaf(var)
-        if self.innerLoopNum == 1:
-            self.root[:] = self.funcmap[1](self.leafvalues)
-        else:
-            self.root[:] = torch.stack(
-                self.funcmap[self.innerLoopNum](self.leafvalues), dim=0
-            ).sum(dim=0)
-        self.root *= (
+        # if self.innerLoopNum == 1:
+        #     self.root[:] = self.funcmap[1](self.leafvalues)
+        # else:
+        #     self.root[:] = torch.stack(
+        #         self.funcmap[self.innerLoopNum](self.leafvalues), dim=0
+        #     ).sum(dim=0)
+        # self.root *= (
+        #     self.factor
+        #     * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
+        #     * (self.beta) ** (self.totalTauNum - 1)
+        #     / (2 * np.pi) ** (self.dim * self.innerLoopNum)
+        # )
+        self.funcmap[self.innerLoopNum](self.root, self.leafvalues)
+        return self.root.sum(dim=1) * (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
             * (self.beta) ** (self.totalTauNum - 1)
             / (2 * np.pi) ** (self.dim * self.innerLoopNum)
         )
-        return self.root
 
     @torch.no_grad()
     def log_prob(self, var):
-        self.prob(var)
-        return torch.log(torch.clamp(torch.abs(self.root), min=1e-10))
+        return torch.log(torch.clamp(self.prob(var), min=1e-10))
+        # self.prob(var)
+        # return torch.log(torch.clamp(torch.abs(self.root), min=1e-10))
 
     @torch.no_grad()
     def sample(self, steps=10):

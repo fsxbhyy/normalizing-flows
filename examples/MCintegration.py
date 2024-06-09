@@ -8,7 +8,7 @@ import os
 enable_cuda = True
 device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
 
-root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
+root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0

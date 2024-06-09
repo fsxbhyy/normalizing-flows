@@ -31,7 +31,7 @@ def print_error(result, solution):
 # Use this to enable GPU support and set the floating point precision
 set_up_backend("torch", data_type="float32")
 
-root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
+root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 2
 dim = 4 * order - 1
