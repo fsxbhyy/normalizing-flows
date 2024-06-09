@@ -6,7 +6,6 @@ import benchmark
 from scipy.special import erf, gamma
 import vegas
 import time
-
 import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -28,6 +27,7 @@ def setup(rank, world_size):
     os.environ['MASTER_PORT'] = '12355'
 
     # initialize the process group
+    torch.cuda.set_device(rank)
     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 def cleanup():
@@ -77,7 +77,7 @@ def train_model_parallel(
 
     # for name, module in ddp_model.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
-    for it in tqdm(range(max_iter)):
+    for it in range(max_iter):
         start_time = time.time()
 
         optimizer.zero_grad()
@@ -112,7 +112,7 @@ def train_model_parallel(
             scheduler.step(loss_accum)  # ReduceLROnPlateau
             # scheduler.step()  # CosineAnnealingLR
         # Log loss
-        loss_hist.append(loss.item())
+        loss_hist.append(loss_accum.item())
 
         # # Log metrics
         # writer.add_scalar("Loss/train", loss.item(), it)
@@ -124,20 +124,22 @@ def train_model_parallel(
             )
 
         # save checkpoint
-        if it % 100 == 0 and it > 0 and save_checkpoint:
+        if (it % 100 == 0 or it == max_iter - 1) and save_checkpoint and rank==0:
             torch.save(
-                {
-                    "model_state_dict": ddp_model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict()
-                    if has_scheduler
-                    else None,
-                    "loss_hist": loss_hist,
-                    "it": it,
-                },
-                f"checkpoint_{it}.pth",
+                #{
+                #    "model_state_dict": ddp_model.state_dict(),
+                #    "optimizer_state_dict": optimizer.state_dict(),
+                #    "scheduler_state_dict": scheduler.state_dict()
+                #    if has_scheduler
+                #    else None,
+                #    "loss_hist": loss_hist,
+                #    "it": it,
+                #},
+                #ddp_model.state_dict(),
+		ddp_model.module,
+                f"checkpoint.pt",
             )
-
+        # dist.barrier()
     # writer.close()
     print("after training \n")
     # print(ddp_model.flows[0].pvct.grid)
@@ -150,3 +152,27 @@ def run_train(fn, world_size):
              args=(world_size,),
              nprocs=world_size,
              join=True)
+
+def run_train_old(target_fn, world_size):
+    mp.set_start_method('spawn')
+    processes = []
+    manager = mp.Manager()
+    result_queue = manager.Queue()
+
+    for rank in range(world_size):
+        p = mp.Process(target=target_fn, args=(rank, world_size, result_queue))
+        p.start()
+        processes.append(p)
+
+    # Collect results from each process
+    for p in processes:
+        p.join()
+
+    # Retrieve the result from the process with rank=0
+    while not result_queue.empty():
+        rank, result = copy.deepcopy(result_queue.get())
+        if rank == 0:
+            cleanup()
+            return result
+
+    return None
