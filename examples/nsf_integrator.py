@@ -196,7 +196,7 @@ def train_model(
 
         if it % 10 == 0:
             print(
-                f"Iteration {it}, Loss: {loss.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
+                f"Iteration {it}, Loss: {loss_accum.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
             )
 
         # save checkpoint
@@ -221,6 +221,164 @@ def train_model(
     # print(nfm.flows[0].pvct.grid)
     # print(nfm.flows[0].pvct.inc)
     print(loss_hist)
+
+
+def train_model_annealing(
+    nfm,
+    max_iter=1000,
+    num_samples=10000,
+    accum_iter=1,
+    init_lr=8e-3,
+    annealing_factor=0.5,
+    init_beta=1.0,
+    lr_threshold=2e-4,
+    save_checkpoint=True,
+):
+    """
+    Train a neural network model with gradient accumulation.
+
+    Args:
+        nfm: The neural network model to train.
+        max_iter: The maximum number of training iterations.
+        num_samples: The number of samples to use for training.
+        accum_iter: The number of iterations to accumulate gradients.
+        has_scheduler: Whether to use a learning rate scheduler.
+        proposal_model: An optional proposal model for sampling.
+        save_checkpoint: Whether to save checkpoints during training every 100 iterations.
+    """
+    nfm = nfm.to(device)
+    final_beta = nfm.p.beta.item() * nfm.p.EF
+    assert final_beta > init_beta, "final_beta should be greater than init_beta"
+    # nfm.p.beta = torch.tensor(init_beta, requires_grad=False, device=device)
+    nfm.p.beta = init_beta / nfm.p.EF
+    nfm.p.mu = chemical_potential(init_beta) * nfm.p.EF
+
+    current_beta = init_beta
+    loss_hist = np.array([])
+    # writer = SummaryWriter()  # Initialize TensorBoard writer
+
+    print("before training \n")
+
+    # Initialize optimizer and scheduler
+    optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=10, verbose=True
+    )
+
+    # Use a learning rate warmup
+    warmup_epochs = 10
+    scheduler_warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.1, total_iters=warmup_epochs
+    )
+
+    # for name, module in nfm.named_modules():
+    #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
+    for it in tqdm(range(max_iter)):
+        start_time = time.time()
+
+        optimizer.zero_grad()
+
+        loss_accum = torch.zeros(1, requires_grad=False, device=device)
+        for _ in range(accum_iter):
+            # Compute loss
+            loss = nfm.IS_forward_kld(num_samples)
+            loss = loss / accum_iter
+            loss_accum += loss
+            # Do backprop and optimizer step
+            if ~(torch.isnan(loss) | torch.isinf(loss)):
+                loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(
+            nfm.parameters(), max_norm=1.0
+        )  # Gradient clipping
+        optimizer.step()
+
+        # Scheduler step after optimizer step
+        if it < warmup_epochs:
+            scheduler_warmup.step()
+        else:
+            scheduler.step(loss_accum)  # ReduceLROnPlateau
+            # scheduler.step()  # CosineAnnealingLR
+
+        # Log loss
+        loss_hist = np.append(loss_hist, loss_accum.item())
+        current_lr = optimizer.param_groups[0]["lr"]
+
+        if it % 10 == 0:
+            print(
+                f"Iteration {it}, beta: {current_beta}, Loss: {loss_accum.item()}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
+            )
+
+        if (
+            it > 20 and current_beta < final_beta and it % 60 == 0
+            # and current_lr < lr_threshold
+            # and np.std(loss_hist[-20:]) < 4e-4
+        ):
+            print(f"Saving NF model with beta={current_beta}...")
+            torch.save(
+                {
+                    "model_state_dict": nfm.module.state_dict()
+                    if hasattr(nfm, "module")
+                    else nfm.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "loss_hist": loss_hist,
+                },
+                f"nfm_beta{current_beta}_final.pt",
+            )
+            current_beta = current_beta / annealing_factor
+            if current_beta > final_beta:
+                current_beta = final_beta
+            nfm.p.beta = current_beta / nfm.p.EF
+            nfm.p.mu = chemical_potential(current_beta) * nfm.p.EF
+            optimizer.param_groups[0]["lr"] = init_lr
+
+            print(f"Annealing beta to {current_beta}")
+
+        # # save checkpoint
+        # if it % 100 == 0 and it > 0 and save_checkpoint:
+        #     torch.save(
+        #         {
+        #             "model_state_dict": nfm.module.state_dict()
+        #             if hasattr(nfm, "module")
+        #             else nfm.state_dict(),
+        #             "optimizer_state_dict": optimizer.state_dict(),
+        #             "scheduler_state_dict": scheduler.state_dict(),
+        #             "loss_hist": loss_hist,
+        #             "it": it,
+        #         },
+        #         f"checkpoint_{it}_.pth",
+        #     )
+
+    # writer.close()
+    print("after training \n")
+    # print(nfm.flows[0].pvct.grid)
+    # print(nfm.flows[0].pvct.inc)
+    print(loss_hist)
+
+
+def chemical_potential(beta):
+    if beta == 1.0:
+        _mu = -0.021460754987022185
+    elif beta == 2.0:
+        _mu = 0.7431120842589388
+    elif beta == 4.0:
+        _mu = 0.9426157552012961
+    elif beta == 8.0:
+        _mu = 0.986801399943294
+    elif beta == 10.0:
+        _mu = 0.9916412363704453
+    elif beta == 16.0:
+        _mu = 0.9967680535828609
+    elif beta == 32.0:
+        _mu = 0.9991956396090637
+    elif beta == 64.0:
+        _mu = 0.9997991296749593
+    elif beta == 128.0:
+        _mu = 0.9999497960580543
+    else:
+        _mu = 1.0
+    return _mu
 
 
 def main(argv):

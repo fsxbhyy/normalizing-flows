@@ -35,7 +35,7 @@ for key in partition:
     leafvalues.append(values)
 
 # for batchsize in [10**i for i in range(0, 7)]:
-diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
+diagram = FeynmanDiagram(order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size)
 
 
 # Vegas
@@ -53,7 +53,7 @@ t0 = benchmark.Timer(
     stmt="map_torch.forward(var)",
     globals={"map_torch": map_torch, "var": var},
     label="Self-energy diagram (order {0} beta {1})".format(order, beta),
-    sub_label="sampling using VEAGS map",
+    sub_label="sampling using VEAGS map (batchsize {0})".format(batch_size)",
 )
 
 nfm = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
@@ -66,14 +66,14 @@ t1 = benchmark.Timer(
     stmt="nfm.forward(var)",
     globals={"nfm": nfm, "var": var},
     label="Self-energy diagram (order {0} beta {1})".format(order, beta),
-    sub_label="sampling using normalizing flow",
+    sub_label="sampling using normalizing flow (batchsize {0})".format(batch_size)",
 )
 
 t2 = benchmark.Timer(
     stmt="nfm.p.prob(var)",
     globals={"nfm": nfm, "var": var},
     label="Self-energy diagram (order {0} beta {1})".format(order, beta),
-    sub_label="Evaluating integrand",
+    sub_label="Evaluating integrand (batchsize {0})".format(batch_size)",
 )
 
 print(t0.timeit(Neval))

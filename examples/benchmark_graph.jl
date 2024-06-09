@@ -4,7 +4,7 @@ using MCIntegration, CSV, DataFrames
 
 dim = 3
 rs = 2.0
-order = 3
+order = 6
 mass2 = 0.5
 beta = 10.0
 isLayered2D = false

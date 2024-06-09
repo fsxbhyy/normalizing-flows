@@ -47,9 +47,11 @@ for key in partition:
 
 # batchsize = 10**dim
 diagram_adapt = FeynmanDiagram(
-    order, loopBasis, leafstates[0], leafvalues[0], num_adapt_samples
+    order, beta, loopBasis, leafstates[0], leafvalues[0], num_adapt_samples
 )
-diagram_eval = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batchsize)
+diagram_eval = FeynmanDiagram(
+    order, beta, loopBasis, leafstates[0], leafvalues[0], batchsize
+)
 
 
 @vegas.batchintegrand

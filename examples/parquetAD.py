@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import re
 import normflows as nf
-from nsf_integrator import generate_model, train_model
+from nsf_integrator import generate_model, train_model, train_model_annealing
 from functools import partial
 from nsf_multigpu import *
 from funcs_sigma import *
@@ -17,22 +17,24 @@ import tracemalloc
 # warn_tensor_cycles()
 
 root_dir = os.path.join(os.path.dirname(__file__), "source_codeParquetAD/")
-# include(os.path.join(root_dir, f"func_sigma_o100.py"))
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 3
-beta = 10.0
+order = 1
+beta = 0.1
 batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
 accum_iter = 10
 
-Nepochs = 300
+init_lr = 8e-3
+Nepochs = 100
 Nblocks = 100
 
 is_save = False
 # is_save = True
+# is_annealing = True
+is_annealing = False
 has_proposal_nfm = False
 multi_gpu = True
 
@@ -41,9 +43,35 @@ def _StringtoIntVector(s):
     return [int(match) for match in re.findall(pattern, s)]
 
 
+def chemical_potential(beta):
+    if beta == 0.1:
+        _mu = -37.301528674058275
+    elif beta == 1.0:
+        _mu = -0.021460754987022185
+    elif beta == 2.0:
+        _mu = 0.7431120842589388
+    elif beta == 4.0:
+        _mu = 0.9426157552012961
+    elif beta == 8.0:
+        _mu = 0.986801399943294
+    elif beta == 10.0:
+        _mu = 0.9916412363704453
+    elif beta == 16.0:
+        _mu = 0.9967680535828609
+    elif beta == 32.0:
+        _mu = 0.9991956396090637
+    elif beta == 64.0:
+        _mu = 0.9997991296749593
+    elif beta == 128.0:
+        _mu = 0.9999497960580543
+    else:
+        _mu = 1.0
+    return _mu
+
+
 class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
-    def __init__(self, order, loopBasis, leafstates, leafvalues, batchsize):
+    def __init__(self, order, beta, loopBasis, leafstates, leafvalues, batchsize):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
         # Unpack leafstates for clarity
         lftype, lforders, leaf_tau_i, leaf_tau_o, leafMomIdx = leafstates
@@ -69,15 +97,8 @@ class FeynmanDiagram(nf.distributions.Target):
         # Derived constants
         self.register_buffer("kF", (9 * pi / (2 * self.spin)) ** (1 / 3) / self.rs)
         self.register_buffer("EF", self.kF**2 / (2 * self.me))
-        self.register_buffer("mu", self.EF)
         self.register_buffer("beta", beta / self.EF)
-        if beta == 1.0:
-            _mu = -0.021460754987022185
-        elif beta == 10.0:
-            _mu = 0.9916412363704453
-        else:
-            _mu = 1.0
-        self.register_buffer("mu", _mu * self.EF)
+        self.register_buffer("mu", chemical_potential(beta) * self.EF)
         self.register_buffer("maxK", 10 * self.kF)
 
         print(
@@ -134,6 +155,31 @@ class FeynmanDiagram(nf.distributions.Target):
         self.extk = self.kF
         self.extn = 0
         self.targetval = 4.0
+
+        if batchsize in [1e3, 1e4, 1e5]:
+            Sigma_diagrams = torch.jit.load(
+                os.path.join(
+                    os.path.dirname(__file__),
+                    f"funcs_sigma/traced_Sigma_{batch_size:.0e}.pt",
+                )
+            )
+            self.funcmap = {
+                1: Sigma_diagrams.func100,
+                2: Sigma_diagrams.func200,
+                3: Sigma_diagrams.func300,
+                4: Sigma_diagrams.func400,
+                5: Sigma_diagrams.func500,
+                6: Sigma_diagrams.func600,
+            }
+        else:
+            self.funcmap = {
+                1: func_sigma_o100.graphfunc,
+                2: func_sigma_o200.graphfunc,
+                3: func_sigma_o300.graphfunc,
+                4: func_sigma_o400.graphfunc,
+                5: func_sigma_o500.graphfunc,
+                6: func_sigma_o600.graphfunc,
+            }
 
     @torch.no_grad()
     def kernelFermiT(self):
@@ -203,13 +249,9 @@ class FeynmanDiagram(nf.distributions.Target):
         self.tau *= self.beta
 
         kq = self.loops[:, :, self.leafMomIdx]
-        # print("test1:", lftype, self.p, self.loops.shape, self.loopBasis[:, :2], kq)
         self.kq2[:] = torch.sum(kq * kq, dim=1)
         self.dispersion[:] = self.kq2 / (2 * self.me) - self.mu
-        # print("test2:",self.loops.shape, eps.shape, tau.shape, leaf_tau_i.shape)
-        # order = lforders[0]
         self.kernelFermiT()
-        # print("var", kq2, self.mu, kernelFermiT(tau, eps, self.beta), tau, eps, self.beta)
         # Calculate bosonic leaves
         self.invK[:] = 1.0 / (self.kq2 + self.mass2)
         self.leaf_bose[:] = ((self.e0**2 / self.eps0) * self.invK) * (
@@ -224,26 +266,11 @@ class FeynmanDiagram(nf.distributions.Target):
     def prob(self, var):
         self._evalleaf(var)
         if self.innerLoopNum == 1:
-            self.root[:] = func_sigma_o100.graphfunc(self.leafvalues)
-        elif self.innerLoopNum == 2:
-            self.root[:] = torch.stack(
-                func_sigma_o200.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 3:
-            self.root[:] = torch.stack(
-                func_sigma_o300.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 4:
-            self.root[:] = torch.stack(
-                func_sigma_o400.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
-        elif self.innerLoopNum == 5:
-            self.root[:] = torch.stack(
-                func_sigma_o500.graphfunc(self.leafvalues), dim=0
-            ).sum(dim=0)
+            self.root[:] = self.funcmap[1](self.leafvalues)
         else:
-            raise ValueError("innerLoopNum should be 1-5")
-
+            self.root[:] = torch.stack(
+                self.funcmap[self.innerLoopNum](self.leafvalues), dim=0
+            ).sum(dim=0)
         self.root *= (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
@@ -308,7 +335,7 @@ def retrain(argv):
     with torch.no_grad():
         mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(10, partition_z)
+    loss = nfm.loss_block(100, partition_z)
     print("Initial loss: ", loss)
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -360,7 +387,6 @@ def main(argv):
     name = "sigma"
     df = pd.read_csv(os.path.join(root_dir, f"loopBasis_{name}_maxOrder6.csv"))
     with torch.no_grad():
-        # loopBasis = torch.tensor([df[col].iloc[:maxMomNum].tolist() for col in df.columns[:num_loops[order-1]]]).T
         loopBasis = torch.Tensor(
             df.iloc[: order + 1, : num_loops[order - 1]].to_numpy()
         )
@@ -373,7 +399,9 @@ def main(argv):
         leafstates.append(state)
         leafvalues.append(values)
 
-    diagram = FeynmanDiagram(order, loopBasis, leafstates[0], leafvalues[0], batch_size)
+    diagram = FeynmanDiagram(
+        order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
+    )
 
     nfm = generate_model(
         diagram,
@@ -444,11 +472,17 @@ def main(argv):
                             save_checkpoint=True)
             run_train(trainfn, world_size)  
         else:  
-            train_model(nfm, epochs, diagram.batchsize, accum_iter)
+            print("initial learning rate: ", init_lr)
+            if is_annealing:
+                train_model_annealing(
+                    nfm, epochs, diagram.batchsize, accum_iter, init_lr
+                )
+            else:
+                train_model(nfm, epochs, diagram.batchsize, accum_iter, init_lr)          
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
+
     
-   
 
     print("Start computing integration...")
     start_time = time.time()
@@ -456,9 +490,21 @@ def main(argv):
     if multi_gpu:
         nfm = torch.load("checkpoint.pt")
 
-     if is_save:
-       torch.save(nfm, "nfm_o{0}_beta{1}_r1.pt".format(order, beta))
-       torch.save(nfm.state_dict(), "nfm_o{0}_beta{1}_state_r1.pt".format(order, beta))
+    
+    if is_save:
+        torch.save(
+            nfm,
+            "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+                order, beta, hidden_layers, num_hidden_channels, num_bins
+            ),
+        )
+        torch.save(
+            nfm.state_dict(),
+            "nfm_o{0}_beta{1}_state_l{2}c{3}b{4}.pt".format(
+                order, beta, hidden_layers, num_hidden_channels, num_bins
+            ),
+        )
+        
     with torch.no_grad():
         mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
             blocks, num_hist_bins
@@ -498,27 +544,27 @@ def main(argv):
         ),
     )
 
-    plt.figure(figsize=(15, 12))
-    for ndim in range(diagram.ndims):
-        plt.stairs(histr[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim))
-    plt.legend()
-    plt.savefig(
-        "histogram_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
-            order, beta, hidden_layers, num_hidden_channels, num_bins
-        )
-    )
+    # plt.figure(figsize=(15, 12))
+    # for ndim in range(diagram.ndims):
+    #     plt.stairs(histr[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim))
+    # plt.legend()
+    # plt.savefig(
+    #     "histogram_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
+    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #     )
+    # )
 
-    plt.figure(figsize=(15, 12))
-    for ndim in range(diagram.ndims):
-        plt.stairs(
-            histr_weight[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim)
-        )
-    plt.legend()
-    plt.savefig(
-        "histogramWeight_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
-            order, beta, hidden_layers, num_hidden_channels, num_bins
-        )
-    )
+    # plt.figure(figsize=(15, 12))
+    # for ndim in range(diagram.ndims):
+    #     plt.stairs(
+    #         histr_weight[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim)
+    #     )
+    # plt.legend()
+    # plt.savefig(
+    #     "histogramWeight_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
+    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #     )
+    # )
 
     # torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
 
