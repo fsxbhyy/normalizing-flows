@@ -26,7 +26,7 @@ batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
-accum_iter = 1
+accum_iter = 10
 
 init_lr = 8e-3
 Nepochs = 100
@@ -37,6 +37,7 @@ is_save = False
 # is_annealing = True
 is_annealing = False
 has_proposal_nfm = False
+multi_gpu = True
 
 print("beta:", beta, "order:", order, "batchsize:", batch_size)
 print(
@@ -452,14 +453,13 @@ def main(argv):
     # print("[ Top 20 ]")
     # for stat in top_stats[:20]:
     #     print(stat)
-
     n_gpus = torch.cuda.device_count()
     world_size = n_gpus
 
     if has_proposal_nfm:
         proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
         start_time = time.time()
-        if world_size > 1:
+        if multi_gpu:
             trainfn = partial(
                 train_model_parallel,
                 nfm=nfm,
@@ -468,7 +468,7 @@ def main(argv):
                 accum_iter=accum_iter,
                 has_scheduler=True,
                 proposal_model=proposal_model,
-                save_checkpoint=False,
+                save_checkpoint=True,
             )
             run_train(trainfn, world_size)
         else:
@@ -481,7 +481,7 @@ def main(argv):
             )
     else:
         start_time = time.time()
-        if world_size > 1:
+        if multi_gpu:
             trainfn = partial(
                 train_model_parallel,
                 nfm=nfm,
@@ -490,7 +490,7 @@ def main(argv):
                 accum_iter=accum_iter,
                 has_scheduler=True,
                 proposal_model=None,
-                save_checkpoint=False,
+                save_checkpoint=True,
             )
             run_train(trainfn, world_size)
         else:
@@ -503,6 +503,12 @@ def main(argv):
                 train_model(nfm, epochs, diagram.batchsize, accum_iter, init_lr)
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
+
+    print("Start computing integration...")
+    start_time = time.time()
+    num_hist_bins = 25
+    if multi_gpu:
+        nfm = torch.load("checkpoint.pt")
 
     if is_save:
         torch.save(
@@ -518,9 +524,6 @@ def main(argv):
             ),
         )
 
-    print("Start computing integration...")
-    start_time = time.time()
-    num_hist_bins = 25
     with torch.no_grad():
         mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
             blocks, num_hist_bins
