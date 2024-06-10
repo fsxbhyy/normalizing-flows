@@ -7,9 +7,9 @@ order = [5]  # maximum diagram order of the run
 mass2 = [0.5]
 
 Fs = [-0.0]        # Fermi liquid parameter with zero angular momentum
-beta = [0.1]      # inverse temperature beta = β*E_F 
+beta = [1.0]      # inverse temperature beta = β*E_F 
 # neval = 4e6       # number of Monte Carlo samples
-neval = 1e7       # number of Monte Carlo samples
+neval = 2e6       # number of Monte Carlo samples
 #neval = 16e6       # number of Monte Carlo samples
 isDynamic = false  # whether to use effective field theory with dynamic screening or not 
 isFock = false     # whether to use Fock renormalization or not
@@ -40,10 +40,10 @@ for (_rs, _mass2, _F, _beta, _order) in Iterators.product(rs, mass2, Fs, beta, o
     #     push!(reweight_goal, reweight_factor)
     # end
     # push!(reweight_goal, 4.0)
-    # partition = [(_order, 0, 0)]
-    partition = [(o, 0, 0) for o in 1:_order]
-    # neighbor = [(1, 2)]
-    neighbor = UEG.neighbor(partition)
+    partition = [(_order, 0, 0)]
+    # partition = [(o, 0, 0) for o in 1:_order]
+    neighbor = [(1, 2)]
+    # neighbor = UEG.neighbor(partition)
 
     # filename = mission == "Z" ? sigma_z_filename : sigma_k_filename
     filename = "dataZ_test.jld2"

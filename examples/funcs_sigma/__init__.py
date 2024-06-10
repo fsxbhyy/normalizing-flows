@@ -6,10 +6,5 @@ from .func_sigma_ParquetAD import (
     eval_graph300,
     eval_graph400,
     eval_graph500,
+    eval_graph600,
 )
-# from . import eval_graph100
-# from . import eval_graph200
-# from . import eval_graph300
-# from . import eval_graph400
-# from . import eval_graph500
-# from . import eval_graph600

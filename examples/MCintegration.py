@@ -1,7 +1,6 @@
 import torch
 import pandas as pd
 import time
-from parquetAD import FeynmanDiagram
 from parquetAD import FeynmanDiagram, load_leaf_info
 import os
 

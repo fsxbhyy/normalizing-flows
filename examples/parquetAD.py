@@ -29,15 +29,13 @@ num_bins = 8
 accum_iter = 10
 
 init_lr = 8e-3
-Nepochs = 100
+Nepochs = 20
 Nblocks = 100
 
-is_save = False
-# is_save = True
-# is_annealing = True
+is_save = True
 is_annealing = False
 has_proposal_nfm = False
-multi_gpu = True
+multi_gpu = False
 
 print("beta:", beta, "order:", order, "batchsize:", batch_size)
 print(
@@ -103,7 +101,6 @@ class FeynmanDiagram(nf.distributions.Target):
         self.register_buffer("me", torch.tensor(0.5))
         self.register_buffer("spin", torch.tensor(2.0))
         self.register_buffer("rs", torch.tensor(2.0))
-        # self.register_buffer("dim", torch.tensor(3))
         self.dim = 3
 
         # Derived constants
@@ -168,30 +165,20 @@ class FeynmanDiagram(nf.distributions.Target):
         self.extn = 0
         self.targetval = 4.0
 
-        # if batchsize in [1e3, 1e4, 1e5]:
-        #     Sigma_diagrams = torch.jit.load(
-        #         os.path.join(
-        #             os.path.dirname(__file__),
-        #             f"funcs_sigma/traced_Sigma_{batch_size:.0e}.pt",
-        #         )
-        #     )
-        #     self.funcmap = {
-        #         1: Sigma_diagrams.func100,
-        #         2: Sigma_diagrams.func200,
-        #         3: Sigma_diagrams.func300,
-        #         4: Sigma_diagrams.func400,
-        #         5: Sigma_diagrams.func500,
-        #         6: Sigma_diagrams.func600,
-        #     }
-        # else:
-        self.funcmap = {
-            1: eval_graph100,
-            2: eval_graph200,
-            3: eval_graph300,
-            4: eval_graph400,
-            5: eval_graph500,
-            # 6: eval_graph600.graphfunc,
-        }
+        if order == 1:
+            self.eval_graph = torch.jit.script(eval_graph100)
+        elif order == 2:
+            self.eval_graph = torch.jit.script(eval_graph200)
+        elif order == 3:
+            self.eval_graph = torch.jit.script(eval_graph300)
+        elif order == 4:
+            self.eval_graph = torch.jit.script(eval_graph400)
+        elif order == 5:
+            self.eval_graph = torch.jit.script(eval_graph500)
+        elif order == 6:
+            self.eval_graph = torch.jit.script(eval_graph600)
+        else:
+            raise ValueError("Invalid order")
 
     @torch.no_grad()
     def kernelFermiT(self):
@@ -277,19 +264,7 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def prob(self, var):
         self._evalleaf(var)
-        # if self.innerLoopNum == 1:
-        #     self.root[:] = self.funcmap[1](self.leafvalues)
-        # else:
-        #     self.root[:] = torch.stack(
-        #         self.funcmap[self.innerLoopNum](self.leafvalues), dim=0
-        #     ).sum(dim=0)
-        # self.root *= (
-        #     self.factor
-        #     * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
-        #     * (self.beta) ** (self.totalTauNum - 1)
-        #     / (2 * np.pi) ** (self.dim * self.innerLoopNum)
-        # )
-        self.funcmap[self.innerLoopNum](self.root, self.leafvalues)
+        self.eval_graph(self.root, self.leafvalues)
         return self.root.sum(dim=1) * (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
@@ -300,11 +275,9 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def log_prob(self, var):
         return torch.log(torch.clamp(self.prob(var), min=1e-10))
-        # self.prob(var)
-        # return torch.log(torch.clamp(torch.abs(self.root), min=1e-10))
 
     @torch.no_grad()
-    def sample(self, steps=10):
+    def sample(self, steps: int = 10):
         for i in range(steps):
             proposed_samples = torch.rand(
                 self.batchsize, self.ndims, device=self.samples.device
@@ -316,7 +289,8 @@ class FeynmanDiagram(nf.distributions.Target):
                 max=1,
             )
             accept = (
-                torch.rand(batch_size, device=self.samples.device) <= acceptance_probs
+                torch.rand(self.batchsize, device=self.samples.device)
+                <= acceptance_probs
             )
             self.samples = torch.where(
                 accept.unsqueeze(1), proposed_samples, self.samples
@@ -511,11 +485,10 @@ def main(argv):
         nfm = torch.load("checkpoint.pt")
 
     if is_save:
-        torch.save(
-            nfm,
+        nfm.save(
             "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
                 order, beta, hidden_layers, num_hidden_channels, num_bins
-            ),
+            )
         )
         torch.save(
             nfm.state_dict(),
