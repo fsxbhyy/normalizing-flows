@@ -20,22 +20,26 @@ root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
 num_roots = [1, 2, 3, 4, 5, 6]
+traced_batchsize = [1000, 10000, 20000, 50000, 100000]
 order = 1
-beta = 1.0
+beta = 32.0
 batch_size = 10000
-hidden_layers = 1
+hidden_layers = 2
 num_hidden_channels = 32
 num_bins = 8
 accum_iter = 10
 
 init_lr = 8e-3
-Nepochs = 20
+Nepochs = 200
 Nblocks = 100
 
 is_save = True
 is_annealing = False
 has_proposal_nfm = False
+# has_proposal_nfm = True
 multi_gpu = False
+
+model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
 
 print("beta:", beta, "order:", order, "batchsize:", batch_size)
 print(
@@ -165,20 +169,39 @@ class FeynmanDiagram(nf.distributions.Target):
         self.extn = 0
         self.targetval = 4.0
 
-        if order == 1:
-            self.eval_graph = torch.jit.script(eval_graph100)
-        elif order == 2:
-            self.eval_graph = torch.jit.script(eval_graph200)
-        elif order == 3:
-            self.eval_graph = torch.jit.script(eval_graph300)
-        elif order == 4:
-            self.eval_graph = torch.jit.script(eval_graph400)
-        elif order == 5:
-            self.eval_graph = torch.jit.script(eval_graph500)
-        elif order == 6:
-            self.eval_graph = torch.jit.script(eval_graph600)
+        if batch_size in traced_batchsize:
+            Sigma_module = torch.jit.load(
+                os.path.join(root_dir, f"traced_Sigma_{batch_size:.0e}.pt")
+            )
+            if order == 1:
+                self.eval_graph = Sigma_module.func100
+            elif order == 2:
+                self.eval_graph = Sigma_module.func200
+            elif order == 3:
+                self.eval_graph = Sigma_module.func300
+            elif order == 4:
+                self.eval_graph = Sigma_module.func400
+            elif order == 5:
+                self.eval_graph = Sigma_module.func500
+            elif order == 6:
+                self.eval_graph = Sigma_module.func600
+            else:
+                raise ValueError("Invalid order")
         else:
-            raise ValueError("Invalid order")
+            if order == 1:
+                self.eval_graph = torch.jit.script(eval_graph100)
+            elif order == 2:
+                self.eval_graph = torch.jit.script(eval_graph200)
+            elif order == 3:
+                self.eval_graph = torch.jit.script(eval_graph300)
+            elif order == 4:
+                self.eval_graph = torch.jit.script(eval_graph400)
+            elif order == 5:
+                self.eval_graph = torch.jit.script(eval_graph500)
+            elif order == 6:
+                self.eval_graph = torch.jit.script(eval_graph600)
+            else:
+                raise ValueError("Invalid order")
 
     @torch.no_grad()
     def kernelFermiT(self):
@@ -264,7 +287,8 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def prob(self, var):
         self._evalleaf(var)
-        self.eval_graph(self.root, self.leafvalues)
+        # self.eval_graph(self.root, self.leafvalues)
+        self.root[:] = self.eval_graph(self.leafvalues)
         return self.root.sum(dim=1) * (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
@@ -326,9 +350,9 @@ def retrain(argv):
 
     start_time = time.time()
     with torch.no_grad():
-        mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
+        mean, err, partition_z = nfm.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(100, partition_z)
+    loss = nfm.loss_block(20, partition_z)
     print("Initial loss: ", loss)
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -348,9 +372,7 @@ def retrain(argv):
     start_time = time.time()
     num_hist_bins = 25
     with torch.no_grad():
-        mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
-            blocks, num_hist_bins
-        )
+        mean, err, partition_z = nfm.integrate_block(blocks, num_hist_bins)
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -412,9 +434,9 @@ def main(argv):
     # tracemalloc.start()
     start_time = time.time()
     with torch.no_grad():
-        mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
+        mean, err, partition_z = nfm.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(10, partition_z)
+    loss = nfm.loss_block(20, partition_z)
     print("Initial loss: ", loss)
 
     print(
@@ -431,7 +453,30 @@ def main(argv):
     world_size = n_gpus
 
     if has_proposal_nfm:
-        proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
+        # proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
+        diagram = FeynmanDiagram(
+            order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
+        )
+        proposal_model = generate_model(
+            diagram,
+            hidden_layers=hidden_layers,
+            num_hidden_channels=num_hidden_channels,
+            num_bins=num_bins,
+        )
+        state_dict = torch.load(model_state_dict_path)
+        # proposal_model.load_state_dict(state_dict)
+
+        pmodel_state_dict = proposal_model.state_dict()
+        partial_state_dict = {
+            k: v
+            for k, v in state_dict.items()
+            if k in pmodel_state_dict and "p." not in k
+        }
+        pmodel_state_dict.update(partial_state_dict)
+
+        proposal_model.load_state_dict(pmodel_state_dict)
+        proposal_model.eval()
+
         start_time = time.time()
         if multi_gpu:
             trainfn = partial(
@@ -452,6 +497,7 @@ def main(argv):
                 diagram.batchsize,
                 proposal_model=proposal_model,
                 accum_iter=accum_iter,
+                init_lr=init_lr,
             )
     else:
         start_time = time.time()
@@ -485,22 +531,20 @@ def main(argv):
         nfm = torch.load("checkpoint.pt")
 
     if is_save:
-        nfm.save(
-            "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-                order, beta, hidden_layers, num_hidden_channels, num_bins
-            )
-        )
+        # nfm.save(
+        #     "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+        #         order, beta, hidden_layers, num_hidden_channels, num_bins
+        #     )
+        # )
         torch.save(
             nfm.state_dict(),
-            "nfm_o{0}_beta{1}_state_l{2}c{3}b{4}.pt".format(
+            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state1.pt".format(
                 order, beta, hidden_layers, num_hidden_channels, num_bins
             ),
         )
 
     with torch.no_grad():
-        mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
-            blocks, num_hist_bins
-        )
+        mean, err, partition_z = nfm.integrate_block(blocks, num_hist_bins)
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -521,43 +565,6 @@ def main(argv):
 
     loss = nfm.loss_block(100, partition_z)
     print("Final loss: ", loss)
-
-    print(bins)
-    torch.save(
-        histr,
-        "histogram_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-            order, beta, hidden_layers, num_hidden_channels, num_bins
-        ),
-    )
-    torch.save(
-        histr_weight,
-        "histogramWeight_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-            order, beta, hidden_layers, num_hidden_channels, num_bins
-        ),
-    )
-
-    # plt.figure(figsize=(15, 12))
-    # for ndim in range(diagram.ndims):
-    #     plt.stairs(histr[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim))
-    # plt.legend()
-    # plt.savefig(
-    #     "histogram_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
-    #         order, beta, hidden_layers, num_hidden_channels, num_bins
-    #     )
-    # )
-
-    # plt.figure(figsize=(15, 12))
-    # for ndim in range(diagram.ndims):
-    #     plt.stairs(
-    #         histr_weight[:, ndim].numpy(), bins.numpy(), label="{0} Dim".format(ndim)
-    #     )
-    # plt.legend()
-    # plt.savefig(
-    #     "histogramWeight_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
-    #         order, beta, hidden_layers, num_hidden_channels, num_bins
-    #     )
-    # )
-
     # torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
 
 

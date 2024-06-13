@@ -89,7 +89,7 @@ def generate_model(
         base_dist = nf.distributions.base.Uniform(ndims, 0.0, 1.0)
 
     # Construct flow model
-    nfm = nf.NormalizingFlow(base_dist, flows, target)
+    nfm = nf.NormalizingFlow(base_dist, flows, target).to(device)
     return nfm
 
 
@@ -127,10 +127,11 @@ def train_model(
         save_checkpoint: Whether to save checkpoints during training every 100 iterations.
     """
     nfm = nfm.to(device)
+    nfm.train()  # Set model to training mode
     loss_hist = []
     # writer = SummaryWriter()  # Initialize TensorBoard writer
 
-    print("before training \n")
+    print("start training \n")
 
     # Initialize optimizer and scheduler
     optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
@@ -217,7 +218,7 @@ def train_model(
             )
 
     # writer.close()
-    print("after training \n")
+    print("training finished \n")
     # print(nfm.flows[0].pvct.grid)
     # print(nfm.flows[0].pvct.inc)
     print(loss_hist)
@@ -253,11 +254,12 @@ def train_model_annealing(
     nfm.p.beta = init_beta / nfm.p.EF
     nfm.p.mu = chemical_potential(init_beta) * nfm.p.EF
 
+    nfm.train()  # Set model to training mode
     current_beta = init_beta
     loss_hist = np.array([])
     # writer = SummaryWriter()  # Initialize TensorBoard writer
 
-    print("before training \n")
+    print("start training \n")
 
     # Initialize optimizer and scheduler
     optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
@@ -350,10 +352,7 @@ def train_model_annealing(
         #         f"checkpoint_{it}_.pth",
         #     )
 
-    # writer.close()
-    print("after training \n")
-    # print(nfm.flows[0].pvct.grid)
-    # print(nfm.flows[0].pvct.inc)
+    print("training finished \n")
     print(loss_hist)
 
 

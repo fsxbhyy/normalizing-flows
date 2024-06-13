@@ -270,7 +270,7 @@ class FeynmanDiagram(nf.distributions.Target):
     def prob(self, var):
         with torch.no_grad():
             self._evalleaf(var)
-            self.eval_graph(self.root, self.leafvalues)
+            self.root[:] = self.eval_graph(self.leafvalues)
             return self.root.sum(dim=1) * (
                 self.factor
                 * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
@@ -334,7 +334,7 @@ def retrain(argv):
 
     start_time = time.time()
     with torch.no_grad():
-        mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
+        mean, err, partition_z = nfm.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
     loss = nfm.loss_block(100, partition_z)
     print("Initial loss: ", loss)
@@ -356,9 +356,7 @@ def retrain(argv):
     start_time = time.time()
     num_hist_bins = 25
     with torch.no_grad():
-        mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
-            blocks, num_hist_bins
-        )
+        mean, err, partition_z = nfm.integrate_block(blocks, num_hist_bins)
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -421,9 +419,9 @@ def main(argv):
     # tracemalloc.start()
     start_time = time.time()
     with torch.no_grad():
-        mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
+        mean, err, partition_z = nfm.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(10, partition_z)
+    loss = nfm.loss_block(20, partition_z)
     print("Initial loss: ", loss)
 
     print(
@@ -461,6 +459,7 @@ def main(argv):
                 diagram.batchsize,
                 proposal_model=proposal_model,
                 accum_iter=accum_iter,
+                init_lr=init_lr,
             )
     else:
         start_time = time.time()
@@ -507,9 +506,7 @@ def main(argv):
         )
 
     with torch.no_grad():
-        mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
-            blocks, num_hist_bins
-        )
+        mean, err, partition_z = nfm.integrate_block(blocks, num_hist_bins)
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -531,19 +528,19 @@ def main(argv):
     loss = nfm.loss_block(100, partition_z)
     print("Final loss: ", loss)
 
-    print(bins)
-    torch.save(
-        histr,
-        "histogram_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-            order, beta, hidden_layers, num_hidden_channels, num_bins
-        ),
-    )
-    torch.save(
-        histr_weight,
-        "histogramWeight_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-            order, beta, hidden_layers, num_hidden_channels, num_bins
-        ),
-    )
+    # print(bins)
+    # torch.save(
+    #     histr,
+    #     "histogram_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #     ),
+    # )
+    # torch.save(
+    #     histr_weight,
+    #     "histogramWeight_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #     ),
+    # )
 
     # plt.figure(figsize=(15, 12))
     # for ndim in range(diagram.ndims):

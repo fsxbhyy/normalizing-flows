@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
-from .func_sigma_ParquetAD import (
+from .func_sigma_torch import (
     eval_graph100,
     eval_graph200,
     eval_graph300,

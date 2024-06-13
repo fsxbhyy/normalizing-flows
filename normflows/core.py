@@ -281,16 +281,16 @@ class NormalizingFlow(nn.Module):
         print("Estimating integral from trained network")
 
         num_samples = self.p.batchsize
-        num_vars = self.p.ndims
+        means_t = torch.zeros(num_blocks, device=self.p.samples.device)
+        # num_vars = self.p.ndims
         # Pre-allocate tensor for storing means and histograms
-        means_t = torch.zeros(num_blocks)
-        with torch.device("cpu"):
-            if isinstance(bins, int):
-                histr = torch.zeros(bins, num_vars)
-                histr_weight = torch.zeros(bins, num_vars)
-            else:
-                histr = torch.zeros(bins.shape[0], num_vars)
-                histr_weight = torch.zeros(bins.shape[0], num_vars)
+        # with torch.device("cpu"):
+        #     if isinstance(bins, int):
+        #         histr = torch.zeros(bins, num_vars)
+        #         histr_weight = torch.zeros(bins, num_vars)
+        #     else:
+        #         histr = torch.zeros(bins.shape[0], num_vars)
+        #         histr_weight = torch.zeros(bins.shape[0], num_vars)
 
         partition_z = torch.tensor(0.0, device=self.p.samples.device)
         for i in range(num_blocks):
@@ -307,21 +307,21 @@ class NormalizingFlow(nn.Module):
             # log_p = torch.log(torch.clamp(prob_abs, min=1e-16))
             # loss += prob_abs / q / z * (log_p - self.p.log_q - torch.log(z))
 
-            z = self.p.samples.detach().cpu()
-            weights = (res / res.abs()).detach().cpu()
-            for d in range(num_vars):
-                hist, bin_edges = torch.histogram(
-                    z[:, d], bins=bins, range=hist_range, density=True
-                )
-                histr[:, d] += hist
-                hist, bin_edges = torch.histogram(
-                    z[:, d],
-                    bins=bins,
-                    range=hist_range,
-                    weight=weights,
-                    density=True,
-                )
-                histr_weight[:, d] += hist
+            # z = self.p.samples.detach().cpu()
+            # weights = (res / res.abs()).detach().cpu()
+            # for d in range(num_vars):
+            #     hist, bin_edges = torch.histogram(
+            #         z[:, d], bins=bins, range=hist_range, density=True
+            #     )
+            # histr[:, d] += hist
+            # hist, bin_edges = torch.histogram(
+            #     z[:, d],
+            #     bins=bins,
+            #     range=hist_range,
+            #     weight=weights,
+            #     density=True,
+            # )
+            # histr_weight[:, d] += hist
 
         print("correlation of values: ", calculate_correlation(means_t))
         while calculate_correlation(means_t) > correlation_threshold:
@@ -343,9 +343,9 @@ class NormalizingFlow(nn.Module):
         return (
             mean_combined,
             std_combined,
-            bin_edges,
-            histr / num_blocks,
-            histr_weight / num_blocks,
+            # bin_edges,
+            # histr / num_blocks,
+            # histr_weight / num_blocks,
             partition_z / num_blocks,
         )
 
@@ -414,8 +414,8 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        current_prob = torch.abs(self.p.prob(self.p.samples))
-        new_prob = torch.empty(batch_size, device=device)
+        current_weight = torch.abs(self.p.prob(self.p.samples))
+        new_weight = torch.empty(batch_size, device=device)
 
         for _ in range(steps):
             # Propose new samples using the normalizing flow
@@ -424,12 +424,12 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = torch.abs(self.p.prob(proposed_samples))
+            new_weight[:] = torch.abs(self.p.prob(proposed_samples))
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
-                new_prob
-                / current_prob  # Pi(x') / Pi(x)
+                new_weight
+                / current_weight  # Pi(x') / Pi(x)
                 * torch.exp(
                     self.p.log_q - proposed_log_q  # q(x) / q(x')
                 ),
@@ -441,7 +441,7 @@ class NormalizingFlow(nn.Module):
             self.p.samples = torch.where(
                 accept.unsqueeze(1), proposed_samples, self.p.samples
             )
-            current_prob = torch.where(accept, new_prob, current_prob)
+            current_weight = torch.where(accept, new_weight, current_weight)
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
         return self.p.samples
 
@@ -486,10 +486,10 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        current_prob = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
+        current_weight = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
             self.p.prob(self.p.samples)
         )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
-        new_prob = torch.empty(batch_size, device=device)
+        new_weight = torch.empty(batch_size, device=device)
 
         for _ in range(burn_in):
             # Propose new samples using the normalizing flow
@@ -498,14 +498,14 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
+            new_weight[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
                 self.p.prob(proposed_samples)
             )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
-                new_prob
-                / current_prob  # Pi(x') / Pi(x)
+                new_weight
+                / current_weight  # Pi(x') / Pi(x)
                 * torch.exp(
                     self.p.log_q - proposed_log_q  # q(x) / q(x')
                 ),
@@ -517,7 +517,7 @@ class NormalizingFlow(nn.Module):
             self.p.samples = torch.where(
                 accept.unsqueeze(1), proposed_samples, self.p.samples
             )
-            current_prob = torch.where(accept, new_prob, current_prob)
+            current_weight = torch.where(accept, new_weight, current_weight)
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
             # self.p.log_q[accept] = proposed_log_q[accept]
 
@@ -526,6 +526,8 @@ class NormalizingFlow(nn.Module):
         abs_values = torch.zeros(num_blocks, device=device)
         block_size = batch_size // num_blocks
         num_measure = 0
+        current_prob = self.p.prob(self.p.samples)
+        new_prob = torch.empty_like(current_prob)
         for i in range(len_chain):
             # Propose new samples using the normalizing flow
             proposed_samples[:], proposed_log_q[:] = self.q0(batch_size)
@@ -533,14 +535,15 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
-                self.p.prob(proposed_samples)
+            new_prob[:] = self.p.prob(proposed_samples)
+            new_weight[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
+                new_prob
             )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
-                new_prob
-                / current_prob  # Pi(x') / Pi(x)
+                new_weight
+                / current_weight  # Pi(x') / Pi(x)
                 * torch.exp(
                     self.p.log_q - proposed_log_q  # q(x) / q(x')
                 ),
@@ -548,9 +551,10 @@ class NormalizingFlow(nn.Module):
             )
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
-            self.p.samples = torch.where(
-                accept.unsqueeze(1), proposed_samples, self.p.samples
-            )
+            # self.p.samples = torch.where(
+            #     accept.unsqueeze(1), proposed_samples, self.p.samples
+            # )
+            current_weight = torch.where(accept, new_weight, current_weight)
             current_prob = torch.where(accept, new_prob, current_prob)
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
             # self.p.log_q[accept] = proposed_log_q[accept]
@@ -558,14 +562,14 @@ class NormalizingFlow(nn.Module):
             # Measurement
             if i % thinning == 0:
                 num_measure += 1
-                self.p.val = self.p.prob(self.p.samples) / current_prob
+                self.p.val = current_prob / current_weight
 
                 for j in range(num_blocks):
                     start = j * block_size
                     end = (j + 1) * block_size
                     values[j] += torch.mean(self.p.val[start:end])
                     ref_values[j] += torch.mean(
-                        torch.exp(self.p.log_q[start:end]) / current_prob[start:end]
+                        torch.exp(self.p.log_q[start:end]) / current_weight[start:end]
                     )
                     abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
 
