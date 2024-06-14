@@ -166,6 +166,9 @@ def train_model(
             #     else:
             if proposal_model is None:
                 loss = nfm.IS_forward_kld(num_samples)
+                #z, _ = nfm.q0(num_samples)
+                #z = nfm.forward(z)
+                #loss = nfm.IS_forward_kld_direct(z.detach())
             else:
                 x = proposal_model.mcmc_sample()
                 loss = nfm.forward_kld(x)
