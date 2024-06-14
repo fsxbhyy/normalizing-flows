@@ -88,26 +88,37 @@ def train_model_parallel(
         optimizer.zero_grad()
 
         loss_accum = torch.zeros(1, requires_grad=False, device=rank)
-        for _ in range(accum_iter):
-            # Compute loss
-            #     if(it<max_iter/2):
-            #         loss = ddp_model.reverse_kld(num_samples)
-            #     else:
-            if proposal_model is None:
-                # loss = ddp_model.module.IS_forward_kld(num_samples)
-                z, _ = nfm.q0(num_samples)
-                z = ddp_model.forward(z.to(rank))
-                loss = nfm.IS_forward_kld_direct(z.detach())
-            else:
-                x = proposal_model.mcmc_sample()
-                loss = ddp_model.module.forward_kld(x)
+        with ddp_model.no_sync():
+            for _ in range(accum_iter-1):
+                if proposal_model is None:
+                    # loss = ddp_model.module.IS_forward_kld(num_samples)
+                    z, _ = nfm.q0(num_samples)
+                    z = ddp_model.forward(z.to(rank))
+                    loss = nfm.IS_forward_kld_direct(z.detach())
+                else:
+                    x = proposal_model.mcmc_sample()
+                    loss = ddp_model.module.forward_kld(x)
 
-            loss = loss / accum_iter
-            loss_accum += loss
-            # Do backprop and optimizer step
-            if ~(torch.isnan(loss) | torch.isinf(loss)):
-                loss.backward()
-                # torch.nn.utils.clip_grad_value_(ddp_model.parameters(), clip) 
+                loss = loss / accum_iter
+                loss_accum += loss
+                # Do backprop and optimizer step
+                if ~(torch.isnan(loss) | torch.isinf(loss)):
+                    loss.backward()
+        #An extra forward-backward pass to trigger the gradient average.        
+        if proposal_model is None:
+                    # loss = ddp_model.module.IS_forward_kld(num_samples)
+                    z, _ = nfm.q0(num_samples)
+                    z = ddp_model.forward(z.to(rank))
+                    loss = nfm.IS_forward_kld_direct(z.detach())
+                else:
+                    x = proposal_model.mcmc_sample()
+                    loss = ddp_model.module.forward_kld(x)
+
+                loss = loss / accum_iter
+                loss_accum += loss
+                # Do backprop and optimizer step
+                if ~(torch.isnan(loss) | torch.isinf(loss)):
+                    loss.backward()
         #if it % 50 == 0:
         #    for param in ddp_model.parameters():
         #        print("test_grad:", param.grad)
