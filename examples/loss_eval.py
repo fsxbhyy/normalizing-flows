@@ -15,7 +15,7 @@ num_loops = [2, 6, 15, 39, 111, 448]
 order = 1
 beta = 10.0
 batch_size = 100000
-hidden_layers = 2
+num_blocks = 2
 num_hidden_channels = 32
 num_bins = 8
 

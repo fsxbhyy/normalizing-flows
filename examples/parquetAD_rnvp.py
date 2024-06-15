@@ -5,8 +5,7 @@ import torch
 import re
 import normflows as nf
 
-# from nsf_integrator import generate_model, train_model
-from nsf_annealing import generate_model, train_model, train_model_annealing
+from realNVP_integrator import generate_model, train_model, train_model_annealing
 from functools import partial
 from nsf_multigpu import *
 from funcs_sigma import *
@@ -24,34 +23,25 @@ num_loops = [2, 6, 15, 39, 111, 448]
 num_roots = [1, 2, 3, 4, 5, 6]
 traced_batchsize = [1000, 10000, 20000, 50000, 100000]
 order = 1
-beta = 10.0
+beta = 1.0
 batch_size = 10000
-num_blocks = 1
-num_hidden_channels = 32
-num_bins = 8
-accum_iter = 1
+num_layers = 4
+accum_iter = 10
 
 init_lr = 8e-3
-Nepochs = 350
+Nepochs = 100
 Nblocks = 100
 
-is_save = False
-is_annealing = True
-# is_annealing = False
-has_proposal_nfm = False
-# has_proposal_nfm = True
+is_save = True
+is_annealing = False
+has_proposal_rnvp = False
+# has_proposal_rnvp = True
 multi_gpu = False
 
-model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
+model_state_dict_path = "rnvp_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
 
-print("beta:", beta, "order:", order, "batchsize:", batch_size)
 print(
-    "num_blocks:",
-    num_blocks,
-    "num_hidden_channels:",
-    num_hidden_channels,
-    "num_bins:",
-    num_bins,
+    "beta:", beta, "order:", order, "batchsize:", batch_size, "num_layers:", num_layers
 )
 
 
@@ -338,66 +328,6 @@ def load_leaf_info(root_dir, name, key_str):
     return (leaftypes, leaforders, inTau_idx, outTau_idx, loop_idx), leafvalues
 
 
-def retrain(argv):
-    del argv
-
-    nfm_name = "nfm_o{0}_beta{1}".format(order, beta)
-
-    print("Loading normalizing-flow model: ", nfm_name)
-    nfm = torch.load(nfm_name + ".pt")
-    nfm.eval()
-    nfm = nfm.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-
-    epochs = Nepochs
-    blocks = Nblocks
-
-    start_time = time.time()
-    with torch.no_grad():
-        mean, err, partition_z = nfm.integrate_block(blocks)
-    print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(20, partition_z)
-    print("Initial loss: ", loss)
-    print(
-        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * nfm.p.batchsize, mean, err, nfm.p.targetval
-        )
-    )
-
-    start_time = time.time()
-    train_model(nfm, epochs, nfm.p.batchsize, accum_iter)
-    print("Training time: {:.3f}s \n".format(time.time() - start_time))
-
-    if is_save:
-        torch.save(nfm, nfm_name + "_retrain.pt")
-        torch.save(nfm.state_dict(), nfm_name + "_state_retrain.pt")
-
-    print("Start computing integration...")
-    start_time = time.time()
-    num_hist_bins = 25
-    with torch.no_grad():
-        mean, err, partition_z = nfm.integrate_block(blocks, num_hist_bins)
-    print("Final integration time: {:.3f}s".format(time.time() - start_time))
-    print(
-        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * nfm.p.batchsize, mean, err, nfm.p.targetval
-        )
-    )
-
-    start_time = time.time()
-    mean_mcmc, err_mcmc = nfm.mcmc_integration(
-        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.1
-    )
-    print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
-    print(
-        "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * nfm.p.batchsize, mean_mcmc, err_mcmc, nfm.p.targetval
-        )
-    )
-
-    loss = nfm.loss_block(100, partition_z)
-    print("Final loss: ", loss)
-
-
 def main(argv):
     del argv
 
@@ -421,13 +351,8 @@ def main(argv):
         order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
     )
 
-    nfm = generate_model(
-        diagram,
-        num_blocks=num_blocks,
-        num_hidden_channels=num_hidden_channels,
-        num_bins=num_bins,
-    )
-    for name, param in nfm.named_parameters():
+    rnvp = generate_model(diagram, num_layers)
+    for name, param in rnvp.named_parameters():
         if param.requires_grad:
             print(name, param.data.shape)
     epochs = Nepochs
@@ -437,14 +362,14 @@ def main(argv):
     # tracemalloc.start()
     start_time = time.time()
     with torch.no_grad():
-        mean, err, partition_z = nfm.integrate_block(blocks)
+        mean, err, partition_z = rnvp.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(20, partition_z)
+    loss = rnvp.loss_block(20, partition_z)
     print("Initial loss: ", loss)
 
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * diagram.batchsize, mean, err, nfm.p.targetval
+            blocks * diagram.batchsize, mean, err, rnvp.p.targetval
         )
     )
     # snapshot = tracemalloc.take_snapshot()
@@ -455,17 +380,12 @@ def main(argv):
     n_gpus = torch.cuda.device_count()
     world_size = n_gpus
 
-    if has_proposal_nfm:
-        # proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
+    if has_proposal_rnvp:
+        # proposal_model = torch.load("rnvp_o{0}_beta{1}.pt".format(order, beta))
         diagram = FeynmanDiagram(
             order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
         )
-        proposal_model = generate_model(
-            diagram,
-            num_blocks=num_blocks,
-            num_hidden_channels=num_hidden_channels,
-            num_bins=num_bins,
-        )
+        proposal_model = generate_model(diagram)
         state_dict = torch.load(model_state_dict_path)
         # proposal_model.load_state_dict(state_dict)
 
@@ -484,7 +404,7 @@ def main(argv):
         if multi_gpu:
             trainfn = partial(
                 train_model_parallel,
-                nfm=nfm,
+                rnvp=rnvp,
                 max_iter=epochs,
                 num_samples=diagram.batchsize,
                 accum_iter=accum_iter,
@@ -495,7 +415,7 @@ def main(argv):
             run_train(trainfn, world_size)
         else:
             train_model(
-                nfm,
+                rnvp,
                 epochs,
                 diagram.batchsize,
                 proposal_model=proposal_model,
@@ -507,7 +427,7 @@ def main(argv):
         if multi_gpu:
             trainfn = partial(
                 train_model_parallel,
-                nfm=nfm,
+                rnvp=rnvp,
                 max_iter=epochs,
                 num_samples=diagram.batchsize,
                 accum_iter=accum_iter,
@@ -520,10 +440,10 @@ def main(argv):
             print("initial learning rate: ", init_lr)
             if is_annealing:
                 train_model_annealing(
-                    nfm, epochs, diagram.batchsize, accum_iter, init_lr
+                    rnvp, epochs, diagram.batchsize, accum_iter, init_lr
                 )
             else:
-                train_model(nfm, epochs, diagram.batchsize, accum_iter, init_lr)
+                train_model(rnvp, epochs, diagram.batchsize, accum_iter, init_lr)
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
@@ -531,42 +451,40 @@ def main(argv):
     start_time = time.time()
     num_hist_bins = 25
     if multi_gpu:
-        nfm = torch.load("checkpoint.pt")
+        rnvp = torch.load("checkpoint.pt")
 
     if is_save:
-        # nfm.save(
-        #     "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+        # rnvp.save(
+        #     "rnvp_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
         #         order, beta, num_blocks, num_hidden_channels, num_bins
         #     )
         # )
         torch.save(
-            nfm.state_dict(),
-            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state1.pt".format(
-                order, beta, num_blocks, num_hidden_channels, num_bins
-            ),
+            rnvp.state_dict(),
+            "realnvp_o{0}_beta{1}_l{2}_state.pt".format(order, beta, num_layers),
         )
 
     with torch.no_grad():
-        mean, err, partition_z = nfm.integrate_block(blocks, num_hist_bins)
+        mean, err, partition_z = rnvp.integrate_block(blocks, num_hist_bins)
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * diagram.batchsize, mean, err, nfm.p.targetval
+            blocks * diagram.batchsize, mean, err, rnvp.p.targetval
         )
     )
 
     start_time = time.time()
-    mean_mcmc, err_mcmc = nfm.mcmc_integration(
+    mean_mcmc, err_mcmc = rnvp.mcmc_integration(
         num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.1
     )
     print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * diagram.batchsize, mean_mcmc, err_mcmc, nfm.p.targetval
+            blocks * diagram.batchsize, mean_mcmc, err_mcmc, rnvp.p.targetval
         )
     )
 
-    loss = nfm.loss_block(100, partition_z)
+    loss = rnvp.loss_block(100, partition_z)
     print("Final loss: ", loss)
     # torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
 

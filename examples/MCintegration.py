@@ -57,7 +57,7 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     }
     nfm = generate_model(
         diagram_nfm,
-        hidden_layers=2,
+        num_blocks=2,
         num_hidden_channels=32,
         num_bins=8,
     )

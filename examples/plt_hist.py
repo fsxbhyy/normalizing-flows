@@ -9,8 +9,8 @@ import matplotlib as mat
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
-order = 6
-beta = 10.0
+order = 5
+beta = 32.0
 
 l_ = 2
 c_ = 32
@@ -99,11 +99,11 @@ if __name__ == "__main__":
     ind_p = np.arange(order - 1, 2 * order - 1)
     ind_theta = np.arange(2 * order - 1, 3 * order - 1)
     ind_phi = np.arange(3 * order - 1, 4 * order - 1)
-    plot_hist(order, beta, ind_tau, True, xlabel="tau")
+    # plot_hist(order, beta, ind_tau, True, xlabel="tau")
     plot_hist(order, beta, ind_tau, False, xlabel="tau")
-    plot_hist(order, beta, ind_p, True, xlabel="rescaled_p")
+    # plot_hist(order, beta, ind_p, True, xlabel="rescaled_p")
     plot_hist(order, beta, ind_p, False, xlabel="rescaled_p")
-    plot_hist(order, beta, ind_theta, True, xlabel="theta")
+    # plot_hist(order, beta, ind_theta, True, xlabel="theta")
     plot_hist(order, beta, ind_theta, False, xlabel="theta")
-    plot_hist(order, beta, ind_phi, True, xlabel="phi")
+    # plot_hist(order, beta, ind_phi, True, xlabel="phi")
     plot_hist(order, beta, ind_phi, False, xlabel="phi")

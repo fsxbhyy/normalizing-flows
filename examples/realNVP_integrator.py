@@ -4,10 +4,7 @@ import numpy as np
 import normflows as nf
 import benchmark
 from scipy.special import erf, gamma
-import vegas
 import time
-
-import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -42,66 +39,46 @@ flags.DEFINE_integer(
 
 def generate_model(
     target,
+    num_layers=32,
     base_dist=None,
-    num_blocks=2,
-    num_hidden_channels=32,
-    num_bins=8,
-    has_VegasLayer=False,
 ):
     # Define flows
     # torch.manual_seed(31)
     # K = 3
     ndims = target.ndims
-    num_input_channels = ndims
+    latent_size = ndims
 
-    @vegas.batchintegrand
-    def func(x):
-        return torch.Tensor.numpy(target.prob(torch.tensor(x)))
+    # masks = nf.utils.iflow_binary_masks(latent_size)  # mask0
+    # print(masks)
 
-    if has_VegasLayer:
-        flows = [
-            nf.flows.VegasLinearSpline(
-                func, num_input_channels, [[0, 1]] * target.ndims, target.batchsize
-            )
-        ]
-    else:
-        flows = []
+    flows = []
+    b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+    for i in range(num_layers):
+        s = nf.nets.MLP([latent_size, 4 * latent_size, latent_size], init_zeros=True)
+        t = nf.nets.MLP([latent_size, 4 * latent_size, latent_size], init_zeros=True)
+        if i % 2 == 0:
+            flows += [nf.flows.MaskedAffineFlow(b, t, s)]
+        else:
+            flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
+        flows += [nf.flows.ActNorm(latent_size)]
 
-    masks = nf.utils.iflow_binary_masks(num_input_channels)  # mask0
-    # masks = [torch.ones(num_input_channels)]
-    print(masks)
-    for mask in masks[::-1]:
-        flows += [
-            nf.flows.CoupledRationalQuadraticSpline(
-                num_input_channels,
-                num_blocks,
-                num_hidden_channels,
-                num_bins=num_bins,
-                mask=mask,
-            )
-        ]
+    # for i in range(num_layers):
+    #     param_map = nf.nets.MLP([ndims, 4 * ndims, 4 * ndims, ndims], init_zeros=True)
+    #     # Add flow layer
+    #     flows.append(nf.flows.AffineCouplingBlock(param_map))
+    #     # Swap dimensions
+    #     flows.append(nf.flows.Permute(2, mode="swap"))
 
     # mask = masks[0] * 0 + 1
     # print(mask)
     # flows += [nf.flows.CoupledRationalQuadraticSpline(num_input_channels, num_blocks, num_hidden_channels, mask=mask)]
     # Set base distribuiton
     if base_dist == None:
-        base_dist = nf.distributions.base.Uniform(ndims, 0.0, 1.0)
+        base_dist = nf.distributions.base.DiagGaussian(ndims)
 
     # Construct flow model
     nfm = nf.NormalizingFlow(base_dist, flows, target).to(device)
     return nfm
-
-
-# def hook_fn(module, grad_input, grad_output):
-#     print(f"--- Backward pass through module {module.__class__.__name__} ---")
-#     print("Grad Input (input gradient to this layer):")
-#     for idx, g in enumerate(grad_input):
-#         print(f"Grad Input {idx}: {g.shape} - requires_grad: {g.requires_grad if g is not None else 'N/A'}")
-#     print("Grad Output (gradient from this layer to next):")
-#     for idx, g in enumerate(grad_output):
-#         print(f"Grad Output {idx}: {g.shape} - requires_grad: {g.requires_grad if g is not None else 'N/A'}")
-#     print("\n")
 
 
 def train_model(
@@ -235,6 +212,18 @@ def train_model_annealing(
     lr_threshold=2e-4,
     save_checkpoint=True,
 ):
+    """
+    Train a neural network model with gradient accumulation.
+
+    Args:
+        nfm: The neural network model to train.
+        max_iter: The maximum number of training iterations.
+        num_samples: The number of samples to use for training.
+        accum_iter: The number of iterations to accumulate gradients.
+        has_scheduler: Whether to use a learning rate scheduler.
+        proposal_model: An optional proposal model for sampling.
+        save_checkpoint: Whether to save checkpoints during training every 100 iterations.
+    """
     nfm = nfm.to(device)
     final_beta = nfm.p.beta.item() * nfm.p.EF
     assert final_beta > init_beta, "final_beta should be greater than init_beta"
@@ -271,9 +260,7 @@ def train_model_annealing(
         loss_accum = torch.zeros(1, requires_grad=False, device=device)
         for _ in range(accum_iter):
             # Compute loss
-            # loss = nfm.IS_forward_kld(num_samples)
-            x = nfm.mcmc_sample()
-            loss = nfm.forward_kld(x)
+            loss = nfm.IS_forward_kld(num_samples)
             loss = loss / accum_iter
             loss_accum += loss
             # Do backprop and optimizer step

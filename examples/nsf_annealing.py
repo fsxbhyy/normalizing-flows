@@ -3,9 +3,10 @@ import torch
 import numpy as np
 import normflows as nf
 import benchmark
-from scipy.special import erf, gamma
 import vegas
 import time
+import mpmath
+from mpmath import polylog, gamma, findroot
 
 import os
 import torch.distributed as dist
@@ -230,30 +231,39 @@ def train_model_annealing(
     num_samples=10000,
     accum_iter=1,
     init_lr=8e-3,
-    annealing_factor=0.5,
+    annealing_factor=1.01,
     init_beta=1.0,
-    lr_threshold=2e-4,
+    final_beta=None,
     save_checkpoint=True,
 ):
     nfm = nfm.to(device)
-    final_beta = nfm.p.beta.item() * nfm.p.EF
+    if final_beta is None:
+        final_beta = (nfm.p.beta * nfm.p.EF).item()
     assert final_beta > init_beta, "final_beta should be greater than init_beta"
-    # nfm.p.beta = torch.tensor(init_beta, requires_grad=False, device=device)
     nfm.p.beta = init_beta / nfm.p.EF
-    nfm.p.mu = chemical_potential(init_beta) * nfm.p.EF
+
+    nfm.p.mu = chemical_potential(init_beta, nfm.p.dim) * nfm.p.EF
 
     nfm.train()  # Set model to training mode
     current_beta = init_beta
     loss_hist = np.array([])
     # writer = SummaryWriter()  # Initialize TensorBoard writer
 
-    print("start training \n")
+    print("start Annealing training, initial beta = ", init_beta, "\n")
 
     # Initialize optimizer and scheduler
     optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=10, verbose=True
+    # CosineAnnealingWarmRestarts scheduler
+    T_0 = 50  # Initial period for the first restart
+    T_mult = 2  # Multiplicative factor for subsequent periods
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=T_0, T_mult=T_mult
     )
+
+    # ReduceLROnPlateau scheduler
+    # scheduler_plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #     optimizer, mode="min", factor=0.5, patience=10, verbose=True
+    # )
 
     # Use a learning rate warmup
     warmup_epochs = 10
@@ -271,9 +281,9 @@ def train_model_annealing(
         loss_accum = torch.zeros(1, requires_grad=False, device=device)
         for _ in range(accum_iter):
             # Compute loss
-            # loss = nfm.IS_forward_kld(num_samples)
-            x = nfm.mcmc_sample()
-            loss = nfm.forward_kld(x)
+            loss = nfm.IS_forward_kld(num_samples)
+            # x = nfm.mcmc_sample()
+            # loss = nfm.forward_kld(x)
             loss = loss / accum_iter
             loss_accum += loss
             # Do backprop and optimizer step
@@ -289,23 +299,28 @@ def train_model_annealing(
         if it < warmup_epochs:
             scheduler_warmup.step()
         else:
-            scheduler.step(loss_accum)  # ReduceLROnPlateau
-            # scheduler.step()  # CosineAnnealingLR
+            # scheduler_plateau.step(loss_accum)  # ReduceLROnPlateau
+            scheduler.step()  # CosineAnnealingLR
+            # scheduler_plateau.step(loss_accum)
 
         # Log loss
         loss_hist = np.append(loss_hist, loss_accum.item())
         current_lr = optimizer.param_groups[0]["lr"]
 
-        if it % 10 == 0:
+        if it % 5 == 0:
             print(
                 f"Iteration {it}, beta: {current_beta}, Loss: {loss_accum.item()}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
             )
 
-        if (
-            it > 20 and current_beta < final_beta and it % 80 == 0
-            # and current_lr < lr_threshold
-            # and np.std(loss_hist[-20:]) < 4e-4
-        ):
+        if it > warmup_epochs and current_beta < final_beta:
+            current_beta = current_beta * annealing_factor
+            if current_beta > final_beta:
+                current_beta = final_beta
+            nfm.p.beta = current_beta / nfm.p.EF
+            nfm.p.mu = chemical_potential(current_beta, nfm.p.dim) * nfm.p.EF
+
+        # save checkpoint
+        if it % 100 == 0 and it > 0 and save_checkpoint:
             print(f"Saving NF model with beta={current_beta}...")
             torch.save(
                 {
@@ -316,58 +331,34 @@ def train_model_annealing(
                     "scheduler_state_dict": scheduler.state_dict(),
                     "loss_hist": loss_hist,
                 },
-                f"nfm_beta{current_beta}_final.pt",
+                f"nfm_beta{current_beta}_checkpoint.pth",
             )
-            current_beta = current_beta / annealing_factor
-            if current_beta > final_beta:
-                current_beta = final_beta
-            nfm.p.beta = current_beta / nfm.p.EF
-            nfm.p.mu = chemical_potential(current_beta) * nfm.p.EF
-            optimizer.param_groups[0]["lr"] = init_lr
+    # Final save
+    if save_checkpoint:
+        torch.save(
+            {
+                "model_state_dict": nfm.module.state_dict()
+                if hasattr(nfm, "module")
+                else nfm.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "loss_hist": loss_hist,
+            },
+            f"nfm_beta{current_beta}_final.pt",
+        )
 
-            print(f"Annealing beta to {current_beta}")
-
-        # # save checkpoint
-        # if it % 100 == 0 and it > 0 and save_checkpoint:
-        #     torch.save(
-        #         {
-        #             "model_state_dict": nfm.module.state_dict()
-        #             if hasattr(nfm, "module")
-        #             else nfm.state_dict(),
-        #             "optimizer_state_dict": optimizer.state_dict(),
-        #             "scheduler_state_dict": scheduler.state_dict(),
-        #             "loss_hist": loss_hist,
-        #             "it": it,
-        #         },
-        #         f"checkpoint_{it}_.pth",
-        #     )
-
-    print("training finished \n")
+    print(f"Annealing training complete. Final beta: {current_beta}")
     print(loss_hist)
 
 
-def chemical_potential(beta):
-    if beta == 1.0:
-        _mu = -0.021460754987022185
-    elif beta == 2.0:
-        _mu = 0.7431120842589388
-    elif beta == 4.0:
-        _mu = 0.9426157552012961
-    elif beta == 8.0:
-        _mu = 0.986801399943294
-    elif beta == 10.0:
-        _mu = 0.9916412363704453
-    elif beta == 16.0:
-        _mu = 0.9967680535828609
-    elif beta == 32.0:
-        _mu = 0.9991956396090637
-    elif beta == 64.0:
-        _mu = 0.9997991296749593
-    elif beta == 128.0:
-        _mu = 0.9999497960580543
-    else:
-        _mu = 1.0
-    return _mu
+def chemical_potential(beta, dim=3):
+    def g(mu):
+        return float(
+            mpmath.re(polylog(dim / 2, -mpmath.exp(beta * mu)))
+            + 1 / gamma(1 + dim / 2) * beta ** (dim / 2)
+        )
+
+    return float(findroot(g, 0))
 
 
 def main(argv):

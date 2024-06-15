@@ -23,7 +23,7 @@ num_roots = [1, 2, 3, 4, 5, 6]
 order = 1
 beta = 1.0
 batch_size = 10000
-hidden_layers = 1
+num_blocks = 1
 num_hidden_channels = 32
 num_bins = 8
 accum_iter = 10
@@ -39,8 +39,8 @@ multi_gpu = False
 
 print("beta:", beta, "order:", order, "batchsize:", batch_size)
 print(
-    "hidden_layers:",
-    hidden_layers,
+    "num_blocks:",
+    num_blocks,
     "num_hidden_channels:",
     num_hidden_channels,
     "num_bins:",
@@ -405,7 +405,7 @@ def main(argv):
 
     nfm = generate_model(
         diagram,
-        hidden_layers=hidden_layers,
+        num_blocks=num_blocks,
         num_hidden_channels=num_hidden_channels,
         num_bins=num_bins,
     )
@@ -495,13 +495,13 @@ def main(argv):
     if is_save:
         nfm.save(
             "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-                order, beta, hidden_layers, num_hidden_channels, num_bins
+                order, beta, num_blocks, num_hidden_channels, num_bins
             )
         )
         torch.save(
             nfm.state_dict(),
             "nfm_o{0}_beta{1}_state_l{2}c{3}b{4}.pt".format(
-                order, beta, hidden_layers, num_hidden_channels, num_bins
+                order, beta, num_blocks, num_hidden_channels, num_bins
             ),
         )
 
@@ -532,13 +532,13 @@ def main(argv):
     # torch.save(
     #     histr,
     #     "histogram_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #         order, beta, num_blocks, num_hidden_channels, num_bins
     #     ),
     # )
     # torch.save(
     #     histr_weight,
     #     "histogramWeight_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #         order, beta, num_blocks, num_hidden_channels, num_bins
     #     ),
     # )
 
@@ -548,7 +548,7 @@ def main(argv):
     # plt.legend()
     # plt.savefig(
     #     "histogram_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
-    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #         order, beta, num_blocks, num_hidden_channels, num_bins
     #     )
     # )
 
@@ -560,7 +560,7 @@ def main(argv):
     # plt.legend()
     # plt.savefig(
     #     "histogramWeight_o{0}_beta{1}_ReduceLR_l{2}c{3}b{4}.png".format(
-    #         order, beta, hidden_layers, num_hidden_channels, num_bins
+    #         order, beta, num_blocks, num_hidden_channels, num_bins
     #     )
     # )
 
