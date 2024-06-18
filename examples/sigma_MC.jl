@@ -40,10 +40,10 @@ for (_rs, _mass2, _F, _beta, _order) in Iterators.product(rs, mass2, Fs, beta, o
     #     push!(reweight_goal, reweight_factor)
     # end
     # push!(reweight_goal, 4.0)
-    # partition = [(_order, 0, 0)]
-    partition = [(o, 0, 0) for o in 1:_order]
-    # neighbor = [(1, 2)]
-    neighbor = UEG.neighbor(partition)
+    partition = [(_order, 0, 0)]
+    neighbor = [(1, 2)]
+    # partition = [(o, 0, 0) for o in 1:_order]
+    # neighbor = UEG.neighbor(partition)
 
     # filename = mission == "Z" ? sigma_z_filename : sigma_k_filename
     filename = "dataZ_test.jld2"

@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from warnings import warn
+from scipy.stats import kstest
 
 from . import distributions
 from . import utils
@@ -154,7 +155,7 @@ class NormalizingFlow(nn.Module):
         # utils.set_requires_grad(self, True)
         return torch.mean(ISratio.detach() * (logp.detach() - log_q))
 
-    def IS_forward_kld_direct(self,  z):
+    def IS_forward_kld_direct(self, z):
         """Estimates forward KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
 
         Args:
@@ -176,6 +177,7 @@ class NormalizingFlow(nn.Module):
         # print( -torch.mean(ISratio.detach()*log_q))
         # utils.set_requires_grad(self, True)
         return torch.mean(ISratio.detach() * (logp.detach() - log_q))
+
     # def forward_kld_mc(self, steps=10):
     #     z = self.p.sample(steps)
 
@@ -303,16 +305,16 @@ class NormalizingFlow(nn.Module):
         print("Estimating integral from trained network")
 
         num_samples = self.p.batchsize
-        num_vars = self.p.ndims
+        means_t = torch.zeros(num_blocks, device=self.p.samples.device)
         # Pre-allocate tensor for storing means and histograms
-        means_t = torch.zeros(num_blocks)
-        with torch.device("cpu"):
-            if isinstance(bins, int):
-                histr = torch.zeros(bins, num_vars)
-                histr_weight = torch.zeros(bins, num_vars)
-            else:
-                histr = torch.zeros(bins.shape[0], num_vars)
-                histr_weight = torch.zeros(bins.shape[0], num_vars)
+        # num_vars = self.p.ndims
+        # with torch.device("cpu"):
+        #     if isinstance(bins, int):
+        #         histr = torch.zeros(bins, num_vars)
+        #         histr_weight = torch.zeros(bins, num_vars)
+        #     else:
+        #         histr = torch.zeros(bins.shape[0], num_vars)
+        #         histr_weight = torch.zeros(bins.shape[0], num_vars)
 
         partition_z = torch.tensor(0.0, device=self.p.samples.device)
         for i in range(num_blocks):
@@ -329,21 +331,21 @@ class NormalizingFlow(nn.Module):
             # log_p = torch.log(torch.clamp(prob_abs, min=1e-16))
             # loss += prob_abs / q / z * (log_p - self.p.log_q - torch.log(z))
 
-            z = self.p.samples.detach().cpu()
-            weights = (res / res.abs()).detach().cpu()
-            for d in range(num_vars):
-                hist, bin_edges = torch.histogram(
-                    z[:, d], bins=bins, range=hist_range, density=True
-                )
-                histr[:, d] += hist
-                hist, bin_edges = torch.histogram(
-                    z[:, d],
-                    bins=bins,
-                    range=hist_range,
-                    weight=weights,
-                    density=True,
-                )
-                histr_weight[:, d] += hist
+            # z = self.p.samples.detach().cpu()
+            # weights = (res / res.abs()).detach().cpu()
+            # for d in range(num_vars):
+            #     hist, bin_edges = torch.histogram(
+            #         z[:, d], bins=bins, range=hist_range, density=True
+            #     )
+            #     histr[:, d] += hist
+            #     hist, bin_edges = torch.histogram(
+            #         z[:, d],
+            #         bins=bins,
+            #         range=hist_range,
+            #         weight=weights,
+            #         density=True,
+            #     )
+            #     histr_weight[:, d] += hist
 
         print("correlation of values: ", calculate_correlation(means_t))
         while calculate_correlation(means_t) > correlation_threshold:
@@ -360,14 +362,26 @@ class NormalizingFlow(nn.Module):
                 means_t[j] = (means_t[k] + means_t[k + 1]) / 2.0
                 k += 2
         mean_combined = torch.mean(means_t[:num_blocks])
-        std_combined = torch.std(means_t[:num_blocks]) / num_blocks**0.5
+        std_combined = torch.std(means_t[:num_blocks])
+        error_combined = std_combined / num_blocks**0.5
+
+        statistic, p_value = kstest(
+            means_t.cpu(),
+            "norm",
+            args=(mean_combined.item(), std_combined.item()),
+        )
+        print(
+            "K-S test: statistic {:.5e}, p-value {:.5e}",
+            statistic,
+            p_value,
+        )
 
         return (
             mean_combined,
-            std_combined,
-            bin_edges,
-            histr / num_blocks,
-            histr_weight / num_blocks,
+            error_combined,
+            # bin_edges,
+            # histr / num_blocks,
+            # histr_weight / num_blocks,
             partition_z / num_blocks,
         )
 
@@ -546,6 +560,8 @@ class NormalizingFlow(nn.Module):
         ref_values = torch.zeros(num_blocks, device=device)
         values = torch.zeros(num_blocks, device=device)
         abs_values = torch.zeros(num_blocks, device=device)
+        var_p = torch.zeros(num_blocks, device=device)
+        var_q = torch.zeros(num_blocks, device=device)
         block_size = batch_size // num_blocks
         num_measure = 0
         for i in range(len_chain):
@@ -570,6 +586,9 @@ class NormalizingFlow(nn.Module):
             )
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
+            if i % 200 == 0:
+                print("acceptance rate: ", accept.sum().item() / batch_size)
+
             self.p.samples = torch.where(
                 accept.unsqueeze(1), proposed_samples, self.p.samples
             )
@@ -590,6 +609,12 @@ class NormalizingFlow(nn.Module):
                         torch.exp(self.p.log_q[start:end]) / current_prob[start:end]
                     )
                     abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
+
+                    var_p[j] += torch.mean(self.p.val[start:end] ** 2)
+                    var_q[j] += torch.mean(
+                        (torch.exp(self.p.log_q[start:end]) / current_prob[start:end])
+                        ** 2
+                    )
 
         print("correlation of values: ", calculate_correlation(values))
         print("correlation of ref_values: ", calculate_correlation(ref_values))
@@ -620,14 +645,47 @@ class NormalizingFlow(nn.Module):
 
         values /= ref_values
         print("correlation of combined values: ", calculate_correlation(values))
-        error = torch.norm(values - mean) / num_blocks
+        _mean = torch.mean(values)
+        _std = torch.std(values)
+        error = _std / num_blocks**0.5
+
+        print(
+            "old result: {:.5e} +- {:.5e}",
+            mean.item(),
+            (torch.norm(values - mean) / num_blocks).item(),
+        )
+        print("new result: {:.5e} +- {:.5e}", _mean.item(), error.item())
+
+        statistic, p_value = kstest(
+            values.cpu(), "norm", args=(_mean.item(), error.item())
+        )
+        print(
+            "K-S test: statistic {:.5e}, p-value {:.5e}",
+            statistic,
+            p_value,
+        )
 
         abs_values /= ref_values
-        err_absval = torch.norm(abs_values - abs_val_mean) / num_blocks
+        err_absval = torch.std(abs_values) / num_blocks**0.5
         print(
-            "|f(x)| Integration results: {:.5e} +/- {:.5e}",
-            abs_val_mean,
-            err_absval,
+            "|f(x)| Integration results: {:.5e} +/- {:.5e}".format(
+                abs_val_mean.item(), err_absval.item()
+            )
+        )
+
+        var_p /= ref_values
+        var_q /= ref_values
+        err_var_p = torch.std(var_p) / num_blocks**0.5
+        err_var_q = torch.std(var_q) / num_blocks**0.5
+        print(
+            "variance of p: {:.5e} +/- {:.5e}".format(
+                var_p.mean().item(), err_var_p.item()
+            )
+        )
+        print(
+            "variance of q: {:.5e} +/- {:.5e}".format(
+                var_q.mean().item(), err_var_q.item()
+            )
         )
 
         return mean, error

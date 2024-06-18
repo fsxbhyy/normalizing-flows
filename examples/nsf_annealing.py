@@ -202,20 +202,22 @@ def train_model(
             )
 
         # save checkpoint
-        if it % 100 == 0 and it > 0 and save_checkpoint:
+        # if it % 100 == 0 and it > 0 and save_checkpoint:
+        if it % 10 == 0 and save_checkpoint:
             torch.save(
                 {
                     "model_state_dict": nfm.module.state_dict()
                     if hasattr(nfm, "module")
                     else nfm.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict()
-                    if has_scheduler
-                    else None,
-                    "loss_hist": loss_hist,
-                    "it": it,
+                    # "optimizer_state_dict": optimizer.state_dict(),
+                    # "scheduler_state_dict": scheduler.state_dict()
+                    # if has_scheduler
+                    # else None,
+                    # "loss_hist": loss_hist,
+                    # "it": it,
                 },
-                f"checkpoint_{it}.pth",
+                f"checkpoint_{it}.pt",
+                # f"checkpoint_{it}.pth",
             )
 
     # writer.close()
@@ -256,14 +258,14 @@ def train_model_annealing(
     # CosineAnnealingWarmRestarts scheduler
     T_0 = 50  # Initial period for the first restart
     T_mult = 2  # Multiplicative factor for subsequent periods
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=T_0, T_mult=T_mult
-    )
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+    #     optimizer, T_0=T_0, T_mult=T_mult
+    # )
 
     # ReduceLROnPlateau scheduler
-    # scheduler_plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    #     optimizer, mode="min", factor=0.5, patience=10, verbose=True
-    # )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=10, verbose=True
+    )
 
     # Use a learning rate warmup
     warmup_epochs = 10
@@ -298,9 +300,10 @@ def train_model_annealing(
         # Scheduler step after optimizer step
         if it < warmup_epochs:
             scheduler_warmup.step()
-        else:
-            # scheduler_plateau.step(loss_accum)  # ReduceLROnPlateau
-            scheduler.step()  # CosineAnnealingLR
+        # else:
+        elif it >= 290:
+            scheduler.step(loss_accum)  # ReduceLROnPlateau
+            # scheduler.step()  # CosineAnnealingLR
             # scheduler_plateau.step(loss_accum)
 
         # Log loss

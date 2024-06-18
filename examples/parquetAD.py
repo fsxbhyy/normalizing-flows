@@ -23,8 +23,8 @@ root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
 num_roots = [1, 2, 3, 4, 5, 6]
 traced_batchsize = [1000, 10000, 20000, 50000, 100000]
-order = 1
-beta = 10.0
+order = 2
+beta = 16.0
 batch_size = 10000
 num_blocks = 1
 num_hidden_channels = 32
@@ -32,19 +32,16 @@ num_bins = 8
 accum_iter = 1
 
 init_lr = 8e-3
-Nepochs = 350
+Nepochs = 50
 Nblocks = 100
 
-is_save = False
-is_annealing = True
-# is_annealing = False
+is_save = True
+# is_annealing = True
+is_annealing = False
 has_proposal_nfm = False
 # has_proposal_nfm = True
 multi_gpu = False
 
-model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
-
-print("beta:", beta, "order:", order, "batchsize:", batch_size)
 print(
     "num_blocks:",
     num_blocks,
@@ -53,6 +50,8 @@ print(
     "num_bins:",
     num_bins,
 )
+
+model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
 
 
 def _StringtoIntVector(s):
@@ -90,6 +89,9 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def __init__(self, order, beta, loopBasis, leafstates, leafvalues, batchsize):
         super().__init__(prop_scale=torch.tensor(1.0), prop_shift=torch.tensor(0.0))
+
+        print("beta:", beta, "order:", order, "batchsize:", batchsize)
+
         # Unpack leafstates for clarity
         lftype, lforders, leaf_tau_i, leaf_tau_o, leafMomIdx = leafstates
 
@@ -541,7 +543,7 @@ def main(argv):
         # )
         torch.save(
             nfm.state_dict(),
-            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state1.pt".format(
+            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state.pt".format(
                 order, beta, num_blocks, num_hidden_channels, num_bins
             ),
         )

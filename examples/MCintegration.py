@@ -2,7 +2,9 @@ import torch
 import pandas as pd
 import time
 from parquetAD import FeynmanDiagram, load_leaf_info
-from nsf_integrator import generate_model
+
+# from nsf_integrator import generate_model
+from nsf_annealing import generate_model
 import os
 
 enable_cuda = True
@@ -10,15 +12,17 @@ device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "
 
 root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 1
-beta = 1.0
+order = 2
+beta = 16.0
 Nblocks = 400
-nfm_batchsize = 10000
-batch_size = 20000
-len_chain = 1000
+nfm_batchsize = 20000
+batch_size = 800
+len_chain = 2000
 thermal_steps = len_chain // 3
 
-model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
+model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state1.pt".format(order, beta)
+# model_state_dict_path = "checkpoint_10.pt"
+# model_state_dict_path = "nfm_o{0}_beta{1}_state_l2c32b8_anneal.pt".format(order, beta)
 
 partition = [(order, 0, 0)]
 name = "sigma"
@@ -51,7 +55,9 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     start_time = time.time()
     # nfm = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
     # nfm.eval()
-    state_dict = torch.load(model_state_dict_path)
+    state_dict = torch.load(
+        model_state_dict_path, map_location=device
+    )  # ["model_state_dict"]
     partial_state_dict = {
         k: v for k, v in state_dict.items() if k in state_dict and "p." not in k
     }
@@ -64,26 +70,27 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     nfm_state_dict = nfm.state_dict()
     nfm_state_dict.update(partial_state_dict)
     nfm.load_state_dict(nfm_state_dict)
-    # nfm.load_state_dict(state_dict)
     nfm.p = diagram
     nfm = nfm.to(device)
     nfm.eval()
-
     print("Loading model takes {:.3f}s".format(time.time() - start_time))
 
-    print("Start computing integration...")
-    start_time = time.time()
-    num_hist_bins = 25
-    with torch.no_grad():
-        mean, err, partition_z = nfm.integrate_block(len_chain, num_hist_bins)
-    print("Final integration time: {:.3f}s".format(time.time() - start_time))
-    print(
-        "Result with {:d} is {:.5e} +/- {:.5e}. \n".format(
-            len_chain * batch_size, mean, err
-        )
-    )
+    # print("Start computing integration...")
+    # start_time = time.time()
+    # num_hist_bins = 25
+    # with torch.no_grad():
+    #     mean, err, partition_z = nfm.integrate_block(len_chain, num_hist_bins)
+    # print("Final integration time: {:.3f}s".format(time.time() - start_time))
+    # print(
+    #     "Result with {:d} is {:.5e} +/- {:.5e}. \n".format(
+    #         len_chain * batch_size, mean, err
+    #     )
+    # )
+    # loss = nfm.loss_block(100, partition_z)
+    # print("Loss = ", loss)
 
-    for alpha in [0.0, 0.1, 0.5, 0.8, 1.0]:
+    # for alpha in [0.0, 0.1, 0.5, 0.9, 1.0]:
+    for alpha in [0.0, 0.1, 1.0]:
         start_time = time.time()
         mean_mcmc, err_mcmc = nfm.mcmc_integration(
             num_blocks=blocks,
