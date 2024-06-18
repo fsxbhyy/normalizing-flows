@@ -21,7 +21,6 @@ len_chain = 2000
 thermal_steps = len_chain // 3
 
 model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state1.pt".format(order, beta)
-# model_state_dict_path = "checkpoint_10.pt"
 # model_state_dict_path = "nfm_o{0}_beta{1}_state_l2c32b8_anneal.pt".format(order, beta)
 
 partition = [(order, 0, 0)]
@@ -75,19 +74,19 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     nfm.eval()
     print("Loading model takes {:.3f}s".format(time.time() - start_time))
 
-    # print("Start computing integration...")
-    # start_time = time.time()
-    # num_hist_bins = 25
-    # with torch.no_grad():
-    #     mean, err, partition_z = nfm.integrate_block(len_chain, num_hist_bins)
-    # print("Final integration time: {:.3f}s".format(time.time() - start_time))
-    # print(
-    #     "Result with {:d} is {:.5e} +/- {:.5e}. \n".format(
-    #         len_chain * batch_size, mean, err
-    #     )
-    # )
-    # loss = nfm.loss_block(100, partition_z)
-    # print("Loss = ", loss)
+    print("Start computing integration...")
+    start_time = time.time()
+    num_hist_bins = 25
+    with torch.no_grad():
+        mean, err, partition_z = nfm.integrate_block(len_chain, num_hist_bins)
+    print("Final integration time: {:.3f}s".format(time.time() - start_time))
+    print(
+        "Result with {:d} is {:.5e} +/- {:.5e}. \n".format(
+            len_chain * batch_size, mean, err
+        )
+    )
+    loss = nfm.loss_block(100, partition_z)
+    print("Loss = ", loss, "\n")
 
     # for alpha in [0.0, 0.1, 0.5, 0.9, 1.0]:
     for alpha in [0.0, 0.1, 1.0]:

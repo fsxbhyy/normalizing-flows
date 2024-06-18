@@ -366,7 +366,7 @@ class NormalizingFlow(nn.Module):
         error_combined = std_combined / num_blocks**0.5
 
         statistic, p_value = kstest(
-            means_t.cpu(),
+            means_t[:num_blocks].cpu(),
             "norm",
             args=(mean_combined.item(), std_combined.item()),
         )
@@ -673,6 +673,8 @@ class NormalizingFlow(nn.Module):
             )
         )
 
+        var_p = var_p[:num_blocks]
+        var_q = var_q[:num_blocks]
         var_p /= ref_values
         var_q /= ref_values
         err_var_p = torch.std(var_p) / num_blocks**0.5
