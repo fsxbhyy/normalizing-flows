@@ -26,9 +26,11 @@ solution = 0.2773  # order 2
 integration_domain = [[0, 1]] * dim
 
 num_adapt_samples = 1000000
-batchsize = 8192
+# batchsize = 8192
+batchsize = 32768
 niters = 20
-nblocks = 2000
+# nblocks = 2000
+nblocks = 3052
 therm_steps = 1000
 
 partition = [(order, 0, 0)]
@@ -100,19 +102,7 @@ print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
 map_torch = VegasMap(
     diagram_eval, dim, integration_domain, batchsize, num_adapt_samples
 )
-# map_torch = map_torch.to(device)
-
-# y_tensor = torch.Tensor(y).to(device)
-# x, jac = map_torch.forward(y_tensor)
-# fx = map_torch.target.prob(x)
-# fy = jac * fx
-# print(torch.mean(fy), torch.std(fy) / batchsize**0.5)
-# y = torch.Tensor(y)
-# print(y)
-# x, jac = map_torch(y)
-# print("torch map x:", x, "\n jac:", jac)
-# y0, jac = map_torch.inverse(x)
-# print("torch invmap y:", y0, "\n jac:", jac)
+map_torch = map_torch.to(device)
 
 
 def smc(f, neval, dim):
@@ -127,17 +117,6 @@ def g(y):
     x = np.empty(y.shape, float)
     m.map(y, x, jac)
     return jac * integrand_eval(x)
-
-
-def block_results(data, nblocks=100):
-    data = np.array(data)
-    neval = len(data)
-    val = []
-    for i in range(nblocks):
-        val.append(np.average(data[i * neval // nblocks : (i + 1) * neval // nblocks]))
-    mean = np.average(val)
-    std = np.std(val) / nblocks**0.5
-    return (mean, std)
 
 
 # Importance sampling with Vegas map (torch)
@@ -159,33 +138,34 @@ for alpha in [0.0, 0.1, 0.9, 1.0]:
     print(f"   VEGAS-map MCMC (alpha = {alpha}):", f"{mean:.6f} +- {error:.6f}")
     print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))
 
-# with Veags map
+# without map
 start_time = time.time()
 data = []
 for i in range(nblocks):
-    data.append(smc(g, batchsize, dim)[0])
+    data.append(smc(integrand_eval, batchsize, dim)[0])
 data = np.array(data)
 r = (np.average(data), np.std(data) / nblocks**0.5)
-print("   SMC + map:", f"{r[0]:.6f} +- {r[1]:.6f}")
+print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
 end_time = time.time()
 wall_clock_time = end_time - start_time
-print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
+
+# # with Veags map
+# start_time = time.time()
+# data = []
+# for i in range(nblocks):
+#     data.append(smc(g, batchsize, dim)[0])
+# data = np.array(data)
+# r = (np.average(data), np.std(data) / nblocks**0.5)
+# print("   SMC + map:", f"{r[0]:.6f} +- {r[1]:.6f}")
+# end_time = time.time()
+# wall_clock_time = end_time - start_time
+# print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
 
 # print(bins)
 # torch.save(hist, "histogramVegas_o{0}_beta{1}.pt".format(order, beta))
 # torch.save(hist_weight, "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta))
 
-# # without map
-# start_time = time.time()
-# data = []
-# for i in range(nblocks):
-#     data.append(smc(integrand_eval, batchsize, dim)[0])
-# data = np.array(data)
-# r = (np.average(data), np.std(data) / nblocks**0.5)
-# print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
-# end_time = time.time()
-# wall_clock_time = end_time - start_time
-# print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 
 # integ = vegas.Integrator(m, alpha=0.0, beta=0.0)
 # r = integ(func, neval=5e7, nitn=5)

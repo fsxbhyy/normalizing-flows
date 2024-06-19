@@ -23,12 +23,15 @@ class VegasMap(torch.nn.Module):
         # y = np.random.uniform(0.0, 1.0, (num_adapt_samples, num_input_channels))
         y = torch.rand(num_adapt_samples, num_input_channels, dtype=torch.float64)
         prob = torch.empty(num_adapt_samples)
-        for i in range(num_adapt_samples // batchsize):
+        nblock = num_adapt_samples // batchsize
+        for i in range(nblock):
             # prob.append(func(y[i * batchsize : (i + 1) * batchsize]))
             prob[i * batchsize : (i + 1) * batchsize] = target.prob(
                 y[i * batchsize : (i + 1) * batchsize]
             )
-        vegas_map.adapt_to_samples(y, prob, nitn=niters)
+        vegas_map.adapt_to_samples(
+            y[: nblock * batchsize, :], prob[: nblock * batchsize], nitn=niters
+        )
 
         self.register_buffer("y", torch.empty(batchsize, num_input_channels))
         self.register_buffer("grid", torch.Tensor(vegas_map.grid))
@@ -244,7 +247,7 @@ class VegasMap(torch.nn.Module):
         proposed_qinv = torch.empty(batch_size, device=device)
 
         current_weight = alpha / current_qinv + (1 - alpha) * torch.abs(
-            self.target.prob(self.x)
+            self.target.prob(current_samples)
         )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
         new_weight = torch.empty(batch_size, device=device)
 
