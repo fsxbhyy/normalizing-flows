@@ -14,13 +14,17 @@ root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 2
 beta = 16.0
-Nblocks = 400
 nfm_batchsize = 20000
-batch_size = 800
+batch_size = 1000
+Nblocks = batch_size
 len_chain = 2000
-thermal_steps = len_chain // 3
+thermal_steps = len_chain // 2
 
-model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state1.pt".format(order, beta)
+num_hidden_layers = 1
+
+model_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state1.pt".format(
+    order, beta, num_hidden_layers
+)
 # model_state_dict_path = "nfm_o{0}_beta{1}_state_l2c32b8_anneal.pt".format(order, beta)
 
 partition = [(order, 0, 0)]
@@ -62,7 +66,7 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     }
     nfm = generate_model(
         diagram_nfm,
-        num_blocks=2,
+        num_blocks=num_hidden_layers,
         num_hidden_channels=32,
         num_bins=8,
     )
@@ -88,8 +92,7 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     loss = nfm.loss_block(100, partition_z)
     print("Loss = ", loss, "\n")
 
-    # for alpha in [0.0, 0.1, 0.5, 0.9, 1.0]:
-    for alpha in [0.0, 0.1, 1.0]:
+    for alpha in [0.0, 0.1, 0.9, 1.0]:
         start_time = time.time()
         mean_mcmc, err_mcmc = nfm.mcmc_integration(
             num_blocks=blocks,

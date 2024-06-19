@@ -304,8 +304,9 @@ class NormalizingFlow(nn.Module):
     ):
         print("Estimating integral from trained network")
 
+        device = self.p.samples.device
         num_samples = self.p.batchsize
-        means_t = torch.zeros(num_blocks, device=self.p.samples.device)
+        means_t = torch.zeros(num_blocks, device=device)
         # Pre-allocate tensor for storing means and histograms
         # num_vars = self.p.ndims
         # with torch.device("cpu"):
@@ -316,7 +317,7 @@ class NormalizingFlow(nn.Module):
         #         histr = torch.zeros(bins.shape[0], num_vars)
         #         histr_weight = torch.zeros(bins.shape[0], num_vars)
 
-        partition_z = torch.tensor(0.0, device=self.p.samples.device)
+        partition_z = torch.tensor(0.0, device=device)
         for i in range(num_blocks):
             self.p.samples, self.p.log_q = self.q0(num_samples)
             for flow in self.flows:
@@ -346,9 +347,16 @@ class NormalizingFlow(nn.Module):
             #         density=True,
             #     )
             #     histr_weight[:, d] += hist
-
-        print("correlation of values: ", calculate_correlation(means_t))
-        while calculate_correlation(means_t) > correlation_threshold:
+        partition_z /= num_blocks
+        # while calculate_correlation(means_t) > correlation_threshold:
+        while (
+            kstest(
+                means_t.cpu(),
+                "norm",
+                args=(means_t.mean().item(), means_t.std().item()),
+            )[1]
+            < 0.05
+        ):
             print("correlation too high, merge blocks")
             if num_blocks <= 64:
                 warn(
@@ -357,24 +365,16 @@ class NormalizingFlow(nn.Module):
                 )
                 break
             num_blocks //= 2
-            k = 0
-            for j in range(0, num_blocks):
-                means_t[j] = (means_t[k] + means_t[k + 1]) / 2.0
-                k += 2
-        mean_combined = torch.mean(means_t[:num_blocks])
-        std_combined = torch.std(means_t[:num_blocks])
-        error_combined = std_combined / num_blocks**0.5
-
+            means_t = (
+                means_t[torch.arange(0, num_blocks * 2, 2, device=device)]
+                + means_t[torch.arange(1, num_blocks * 2, 2, device=device)]
+            ) / 2.0
         statistic, p_value = kstest(
-            means_t[:num_blocks].cpu(),
-            "norm",
-            args=(mean_combined.item(), std_combined.item()),
+            means_t.cpu(), "norm", args=(means_t.mean().item(), means_t.std().item())
         )
-        print(
-            "K-S test: statistic {:.5e}, p-value {:.5e}",
-            statistic,
-            p_value,
-        )
+        print(f"K-S test: statistic {statistic}, p-value {p_value}.")
+        mean_combined = torch.mean(means_t)
+        error_combined = torch.std(means_t) / num_blocks**0.5
 
         return (
             mean_combined,
@@ -382,7 +382,7 @@ class NormalizingFlow(nn.Module):
             # bin_edges,
             # histr / num_blocks,
             # histr_weight / num_blocks,
-            partition_z / num_blocks,
+            partition_z,
         )
 
     @torch.no_grad()
@@ -450,8 +450,8 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        current_prob = torch.abs(self.p.prob(self.p.samples))
-        new_prob = torch.empty(batch_size, device=device)
+        current_weight = torch.abs(self.p.prob(self.p.samples))
+        new_weight = torch.empty(batch_size, device=device)
 
         for _ in range(steps):
             # Propose new samples using the normalizing flow
@@ -460,12 +460,12 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = torch.abs(self.p.prob(proposed_samples))
+            new_weight[:] = torch.abs(self.p.prob(proposed_samples))
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
-                new_prob
-                / current_prob  # Pi(x') / Pi(x)
+                new_weight
+                / current_weight  # Pi(x') / Pi(x)
                 * torch.exp(
                     self.p.log_q - proposed_log_q  # q(x) / q(x')
                 ),
@@ -477,7 +477,7 @@ class NormalizingFlow(nn.Module):
             self.p.samples = torch.where(
                 accept.unsqueeze(1), proposed_samples, self.p.samples
             )
-            current_prob = torch.where(accept, new_prob, current_prob)
+            current_weight = torch.where(accept, new_weight, current_weight)
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
         return self.p.samples
 
@@ -511,7 +511,7 @@ class NormalizingFlow(nn.Module):
         device = self.p.samples.device
         vars_shape = self.p.samples.shape
         if burn_in is None:
-            burn_in = len_chain // 5
+            burn_in = len_chain // 4
 
         # Initialize chains
         self.p.samples[:], self.p.log_q[:] = self.q0(batch_size)
@@ -522,10 +522,10 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        current_prob = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
+        current_weight = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
             self.p.prob(self.p.samples)
         )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
-        new_prob = torch.empty(batch_size, device=device)
+        new_weight = torch.empty(batch_size, device=device)
 
         for _ in range(burn_in):
             # Propose new samples using the normalizing flow
@@ -534,14 +534,14 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
+            new_weight[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
                 self.p.prob(proposed_samples)
             )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
-                new_prob
-                / current_prob  # Pi(x') / Pi(x)
+                new_weight
+                / current_weight  # Pi(x') / Pi(x)
                 * torch.exp(
                     self.p.log_q - proposed_log_q  # q(x) / q(x')
                 ),
@@ -553,9 +553,12 @@ class NormalizingFlow(nn.Module):
             self.p.samples = torch.where(
                 accept.unsqueeze(1), proposed_samples, self.p.samples
             )
-            current_prob = torch.where(accept, new_prob, current_prob)
+            current_weight = torch.where(accept, new_weight, current_weight)
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
             # self.p.log_q[accept] = proposed_log_q[accept]
+
+        self.p.val = self.p.prob(self.p.samples)
+        new_prob = torch.empty_like(self.p.val)
 
         ref_values = torch.zeros(num_blocks, device=device)
         values = torch.zeros(num_blocks, device=device)
@@ -571,14 +574,15 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_prob[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
-                self.p.prob(proposed_samples)
+            new_prob[:] = self.p.prob(proposed_samples)
+            new_weight[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
+                new_prob
             )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
-                new_prob
-                / current_prob  # Pi(x') / Pi(x)
+                new_weight
+                / current_weight  # Pi(x') / Pi(x)
                 * torch.exp(
                     self.p.log_q - proposed_log_q  # q(x) / q(x')
                 ),
@@ -586,41 +590,60 @@ class NormalizingFlow(nn.Module):
             )
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
-            if i % 200 == 0:
+            if i % 400 == 0:
                 print("acceptance rate: ", accept.sum().item() / batch_size)
 
-            self.p.samples = torch.where(
-                accept.unsqueeze(1), proposed_samples, self.p.samples
-            )
-            current_prob = torch.where(accept, new_prob, current_prob)
+            # self.p.samples = torch.where(
+            #     accept.unsqueeze(1), proposed_samples, self.p.samples
+            # )
+            self.p.val = torch.where(accept, new_prob, self.p.val)
+            current_weight = torch.where(accept, new_weight, current_weight)
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
             # self.p.log_q[accept] = proposed_log_q[accept]
 
             # Measurement
             if i % thinning == 0:
                 num_measure += 1
-                self.p.val = self.p.prob(self.p.samples) / current_prob
+                # self.p.val = self.p.prob(self.p.samples) / current_weight
+                # self.p.val /= current_weight
 
                 for j in range(num_blocks):
                     start = j * block_size
                     end = (j + 1) * block_size
-                    values[j] += torch.mean(self.p.val[start:end])
-                    ref_values[j] += torch.mean(
-                        torch.exp(self.p.log_q[start:end]) / current_prob[start:end]
+                    values[j] += torch.mean(
+                        self.p.val[start:end] / current_weight[start:end]
                     )
-                    abs_values[j] += torch.mean(torch.abs(self.p.val[start:end]))
+                    ref_values[j] += torch.mean(
+                        torch.exp(self.p.log_q[start:end]) / current_weight[start:end]
+                    )
+                    abs_values[j] += torch.mean(
+                        torch.abs(self.p.val[start:end] / current_weight[start:end])
+                    )
 
-                    var_p[j] += torch.mean(self.p.val[start:end] ** 2)
+                    var_p[j] += torch.mean(
+                        (self.p.val[start:end] / current_weight[start:end]) ** 2
+                    )
                     var_q[j] += torch.mean(
-                        (torch.exp(self.p.log_q[start:end]) / current_prob[start:end])
+                        (torch.exp(self.p.log_q[start:end]) / current_weight[start:end])
                         ** 2
                     )
+        values /= num_measure
+        ref_values /= num_measure
+        abs_values /= num_measure
+        var_p /= num_measure
+        var_q /= num_measure
 
-        print("correlation of values: ", calculate_correlation(values))
-        print("correlation of ref_values: ", calculate_correlation(ref_values))
+        # print("correlation of values: ", calculate_correlation(values))
+        # print("correlation of ref_values: ", calculate_correlation(ref_values))
+        # while (
+        #     calculate_correlation(values) > correlation_threshold
+        #     or calculate_correlation(ref_values) > correlation_threshold
+        # ):
         while (
-            calculate_correlation(values) > correlation_threshold
-            or calculate_correlation(abs_values) > correlation_threshold
+            kstest(
+                values.cpu(), "norm", args=(values.mean().item(), values.std().item())
+            )[1]
+            < 0.05
         ):
             print("correlation too high, merge blocks")
             if num_blocks <= 64:
@@ -630,40 +653,60 @@ class NormalizingFlow(nn.Module):
                 )
                 break
             num_blocks //= 2
-            k = 0
-            for j in range(0, num_blocks):
-                values[j] = (values[k] + values[k + 1]) / 2.0
-                abs_values[j] = (abs_values[k] + abs_values[k + 1]) / 2.0
-                ref_values[j] = (ref_values[k] + ref_values[k + 1]) / 2.0
-                k += 2
-        values = values[:num_blocks]
-        abs_values = abs_values[:num_blocks]
-        ref_values = ref_values[:num_blocks]
+            even_idx = torch.arange(0, num_blocks * 2, 2, device=device)
+            odd_idx = torch.arange(1, num_blocks * 2, 2, device=device)
+            values = (values[even_idx] + values[odd_idx]) / 2.0
+            abs_values = (abs_values[even_idx] + abs_values[odd_idx]) / 2.0
+            ref_values = (ref_values[even_idx] + ref_values[odd_idx]) / 2.0
+            var_p = (var_p[even_idx] + var_p[odd_idx]) / 2.0
+            var_q = (var_q[even_idx] + var_q[odd_idx]) / 2.0
+            # k = 0
+            # for j in range(0, num_blocks):
+            #     values[j] = (values[k] + values[k + 1]) / 2.0
+            #     abs_values[j] = (abs_values[k] + abs_values[k + 1]) / 2.0
+            #     ref_values[j] = (ref_values[k] + ref_values[k + 1]) / 2.0
+            #     k += 2
+        # values = values[:num_blocks]
+        # abs_values = abs_values[:num_blocks]
+        # ref_values = ref_values[:num_blocks]
+        print("new block number: ", num_blocks)
 
-        mean = torch.mean(values) / torch.mean(ref_values)
+        statistic, p_value = kstest(
+            values.cpu(), "norm", args=(values.mean().item(), values.std().item())
+        )
+        print(f"K-S test of values: statistic {statistic}, p-value {p_value}")
+
+        statistic, p_value = kstest(
+            ref_values.cpu(),
+            "norm",
+            args=(ref_values.mean().item(), ref_values.std().item()),
+        )
+        print(f"K-S test of ref_values: statistic {statistic}, p-value {p_value}")
+
+        ratio_mean = torch.mean(values) / torch.mean(ref_values)
         abs_val_mean = torch.mean(abs_values) / torch.mean(ref_values)
 
+        cov_matrix = torch.cov(torch.stack((values, ref_values)))
+        print("covariance matrix: ", cov_matrix)
+        ratio_var = (
+            cov_matrix[0, 0]
+            - 2 * ratio_mean * cov_matrix[0, 1]
+            + ratio_mean**2 * cov_matrix[1, 1]
+        ) / torch.mean(ref_values) ** 2
+        ratio_err = (ratio_var / batch_size) ** 0.5
+
         values /= ref_values
-        print("correlation of combined values: ", calculate_correlation(values))
+        # print("correlation of combined values: ", calculate_correlation(values))
         _mean = torch.mean(values)
         _std = torch.std(values)
         error = _std / num_blocks**0.5
 
-        print(
-            "old result: {:.5e} +- {:.5e}",
-            mean.item(),
-            (torch.norm(values - mean) / num_blocks).item(),
-        )
-        print("new result: {:.5e} +- {:.5e}", _mean.item(), error.item())
+        print("old result: {:.5e} +- {:.5e}".format(_mean.item(), error.item()))
 
         statistic, p_value = kstest(
-            values.cpu(), "norm", args=(_mean.item(), error.item())
+            values.cpu(), "norm", args=(_mean.item(), _std.item())
         )
-        print(
-            "K-S test: statistic {:.5e}, p-value {:.5e}",
-            statistic,
-            p_value,
-        )
+        print(f"K-S test of ratio values: statistic {statistic}, p-value {p_value}")
 
         abs_values /= ref_values
         err_absval = torch.std(abs_values) / num_blocks**0.5
@@ -673,10 +716,6 @@ class NormalizingFlow(nn.Module):
             )
         )
 
-        var_p = var_p[:num_blocks]
-        var_q = var_q[:num_blocks]
-        var_p /= ref_values
-        var_q /= ref_values
         err_var_p = torch.std(var_p) / num_blocks**0.5
         err_var_q = torch.std(var_q) / num_blocks**0.5
         print(
@@ -690,7 +729,7 @@ class NormalizingFlow(nn.Module):
             )
         )
 
-        return mean, error
+        return ratio_mean, ratio_err
 
     def log_prob(self, x):
         """Get log probability for batch

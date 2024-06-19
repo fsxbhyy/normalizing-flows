@@ -18,17 +18,18 @@ torch.set_printoptions(precision=10)  # Set displayed output precision to 10 dig
 
 root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 1
+order = 2
 dim = 4 * order - 1
-beta = 10.0
+beta = 16.0
 solution = 0.2773  # order 2
 # solution = -0.03115 # order 3
 integration_domain = [[0, 1]] * dim
 
-num_adapt_samples = 100000
-batchsize = 5000
+num_adapt_samples = 1000000
+batchsize = 8192
 niters = 20
-nblocks = 1000
+nblocks = 2000
+therm_steps = 1000
 
 partition = [(order, 0, 0)]
 name = "sigma"
@@ -139,6 +140,25 @@ def block_results(data, nblocks=100):
     return (mean, std)
 
 
+# Importance sampling with Vegas map (torch)
+map_torch = map_torch.to(device)
+start_time = time.time()
+mean, std = map_torch.integrate_block(nblocks)
+print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
+end_time = time.time()
+wall_clock_time = end_time - start_time
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
+
+# Vegas-map MCMC
+len_chain = nblocks
+for alpha in [0.0, 0.1, 0.9, 1.0]:
+    start_time = time.time()
+    mean, error = map_torch.mcmc(
+        len_chain, alpha=alpha, burn_in=therm_steps
+    )  # , thinning=20
+    print(f"   VEGAS-map MCMC (alpha = {alpha}):", f"{mean:.6f} +- {error:.6f}")
+    print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))
+
 # with Veags map
 start_time = time.time()
 data = []
@@ -149,16 +169,8 @@ r = (np.average(data), np.std(data) / nblocks**0.5)
 print("   SMC + map:", f"{r[0]:.6f} +- {r[1]:.6f}")
 end_time = time.time()
 wall_clock_time = end_time - start_time
-print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
 
-# with Vegas map (torch)
-map_torch = map_torch.to(device)
-start_time = time.time()
-mean, std = map_torch.integrate_block(nblocks)
-print("   Vegas map (torch):", f"{mean:.6f} +- {std:.6f}")
-end_time = time.time()
-wall_clock_time = end_time - start_time
-print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 # print(bins)
 # torch.save(hist, "histogramVegas_o{0}_beta{1}.pt".format(order, beta))
 # torch.save(hist_weight, "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta))

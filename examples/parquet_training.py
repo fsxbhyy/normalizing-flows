@@ -6,7 +6,8 @@ import re
 import normflows as nf
 from nsf_integrator import generate_model, train_model, train_model_annealing
 from functools import partial
-#from nsf_multigpu import *
+
+# from nsf_multigpu import *
 from multigpu import *
 from funcs_sigma import *
 import time
@@ -38,15 +39,15 @@ is_annealing = False
 has_proposal_nfm = False
 multi_gpu = True
 
-#print("beta:", beta, "order:", order, "batchsize:", batch_size)
-#print(
+# print("beta:", beta, "order:", order, "batchsize:", batch_size)
+# print(
 #    "hidden_layers:",
 #    hidden_layers,
 #    "num_hidden_channels:",
 #    num_hidden_channels,
 #    "num_bins:",
 #    num_bins,
-#)
+# )
 
 
 def _StringtoIntVector(s):
@@ -312,68 +313,6 @@ def load_leaf_info(root_dir, name, key_str):
     return (leaftypes, leaforders, inTau_idx, outTau_idx, loop_idx), leafvalues
 
 
-def retrain(argv):
-    del argv
-
-    nfm_name = "nfm_o{0}_beta{1}".format(order, beta)
-
-    print("Loading normalizing-flow model: ", nfm_name)
-    nfm = torch.load(nfm_name + ".pt")
-    nfm.eval()
-    nfm = nfm.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-
-    epochs = Nepochs
-    blocks = Nblocks
-
-    start_time = time.time()
-    with torch.no_grad():
-        mean, err, _, _, _, partition_z = nfm.integrate_block(blocks)
-    print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(100, partition_z)
-    print("Initial loss: ", loss)
-    print(
-        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * nfm.p.batchsize, mean, err, nfm.p.targetval
-        )
-    )
-
-    start_time = time.time()
-    train_model(nfm, epochs, nfm.p.batchsize, accum_iter)
-    print("Training time: {:.3f}s \n".format(time.time() - start_time))
-
-    if is_save:
-        torch.save(nfm, nfm_name + "_retrain.pt")
-        torch.save(nfm.state_dict(), nfm_name + "_state_retrain.pt")
-
-    print("Start computing integration...")
-    start_time = time.time()
-    num_hist_bins = 25
-    with torch.no_grad():
-        mean, err, bins, histr, histr_weight, partition_z = nfm.integrate_block(
-            blocks, num_hist_bins
-        )
-    print("Final integration time: {:.3f}s".format(time.time() - start_time))
-    print(
-        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * nfm.p.batchsize, mean, err, nfm.p.targetval
-        )
-    )
-
-    start_time = time.time()
-    mean_mcmc, err_mcmc = nfm.mcmc_integration(
-        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.1
-    )
-    print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
-    print(
-        "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * nfm.p.batchsize, mean_mcmc, err_mcmc, nfm.p.targetval
-        )
-    )
-
-    loss = nfm.loss_block(100, partition_z)
-    print("Final loss: ", loss)
-
-
 def main(argv):
     del argv
     setup()
@@ -403,20 +342,19 @@ def main(argv):
         num_hidden_channels=num_hidden_channels,
         num_bins=num_bins,
     )
-    #for name, param in nfm.named_parameters():
+    # for name, param in nfm.named_parameters():
     #    if param.requires_grad:
     #        print(name, param.data.shape)
     epochs = Nepochs
     blocks = Nblocks
 
     n_gpus = torch.cuda.device_count()
-    world_size = n_gpus
 
     if has_proposal_nfm:
         proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
         start_time = time.time()
         if multi_gpu:
-            #trainfn = partial(
+            # trainfn = partial(
             #    train_model_parallel,
             #    nfm=nfm,
             #    max_iter=epochs,
@@ -425,8 +363,8 @@ def main(argv):
             #    has_scheduler=True,
             #    proposal_model=proposal_model,
             #    save_checkpoint=True,
-            #)
-            #run_train(trainfn, world_size)
+            # )
+            # run_train(trainfn, world_size)
             train_model_parallel(
                 nfm=nfm,
                 max_iter=epochs,
@@ -447,7 +385,7 @@ def main(argv):
     else:
         start_time = time.time()
         if multi_gpu:
-            #trainfn = partial(
+            # trainfn = partial(
             #    train_model_parallel,
             train_model_parallel(
                 nfm=nfm,
@@ -458,7 +396,7 @@ def main(argv):
                 proposal_model=None,
                 save_checkpoint=True,
             )
-            #run_train(trainfn, world_size)
+            # run_train(trainfn, world_size)
         else:
             print("initial learning rate: ", init_lr)
             if is_annealing:
@@ -469,6 +407,7 @@ def main(argv):
                 train_model(nfm, epochs, diagram.batchsize, accum_iter, init_lr)
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
+
 
 if __name__ == "__main__":
     main(1)

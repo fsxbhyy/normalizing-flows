@@ -149,7 +149,7 @@ def train_model(
 
     if proposal_model is not None:
         proposal_model.to(device)
-        proposal_model.mcmc_sample(200, init=True)
+        proposal_model.mcmc_sample(500, init=True)
 
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
@@ -166,9 +166,9 @@ def train_model(
             #     else:
             if proposal_model is None:
                 loss = nfm.IS_forward_kld(num_samples)
-                #z, _ = nfm.q0(num_samples)
-                #z = nfm.forward(z)
-                #loss = nfm.IS_forward_kld_direct(z.detach())
+                # z, _ = nfm.q0(num_samples)
+                # z = nfm.forward(z)
+                # loss = nfm.IS_forward_kld_direct(z.detach())
             else:
                 x = proposal_model.mcmc_sample()
                 loss = nfm.forward_kld(x)

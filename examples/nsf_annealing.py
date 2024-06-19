@@ -150,7 +150,7 @@ def train_model(
 
     if proposal_model is not None:
         proposal_model.to(device)
-        proposal_model.mcmc_sample(200, init=True)
+        proposal_model.mcmc_sample(500, init=True)
 
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
