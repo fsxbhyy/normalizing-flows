@@ -114,6 +114,7 @@ def train_model(
     has_scheduler=True,
     proposal_model=None,
     save_checkpoint=True,
+    sample_interval=5,
 ):
     """
     Train a neural network model with gradient accumulation.
@@ -168,7 +169,7 @@ def train_model(
             if proposal_model is None:
                 loss = nfm.IS_forward_kld(num_samples)
             else:
-                x = proposal_model.mcmc_sample()
+                x = proposal_model.mcmc_sample(sample_interval)
                 loss = nfm.forward_kld(x)
 
             loss = loss / accum_iter

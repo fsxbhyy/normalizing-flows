@@ -133,7 +133,7 @@ len_chain = nblocks
 for alpha in [0.0, 0.1, 0.9, 1.0]:
     start_time = time.time()
     mean, error = map_torch.mcmc(
-        len_chain, alpha=alpha, burn_in=therm_steps
+        len_chain, alpha=alpha, burn_in=therm_steps, step_size=0.1
     )  # , thinning=20
     print(f"   VEGAS-map MCMC (alpha = {alpha}):", f"{mean:.6f} +- {error:.6f}")
     print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))

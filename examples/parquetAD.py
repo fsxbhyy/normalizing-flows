@@ -38,9 +38,11 @@ Nblocks = 100
 is_save = True
 # is_annealing = True
 is_annealing = False
-has_proposal_nfm = False
-# has_proposal_nfm = True
+# has_proposal_nfm = False
+has_proposal_nfm = True
 multi_gpu = False
+
+model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
 
 print(
     "num_blocks:",
@@ -50,8 +52,6 @@ print(
     "num_bins:",
     num_bins,
 )
-
-model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
 
 
 def _StringtoIntVector(s):
@@ -543,7 +543,7 @@ def main(argv):
         # )
         torch.save(
             nfm.state_dict(),
-            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state.pt".format(
+            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state_test.pt".format(
                 order, beta, num_blocks, num_hidden_channels, num_bins
             ),
         )

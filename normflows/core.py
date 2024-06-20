@@ -436,7 +436,7 @@ class NormalizingFlow(nn.Module):
         return histr, bins
 
     @torch.no_grad()
-    def mcmc_sample(self, steps=1, init=False):
+    def mcmc_sample(self, steps=1, init=False, alpha=0.1):
         batch_size = self.p.batchsize
         device = self.p.samples.device
         vars_shape = self.p.samples.shape
@@ -450,7 +450,9 @@ class NormalizingFlow(nn.Module):
         proposed_log_det = torch.empty(batch_size, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
 
-        current_weight = torch.abs(self.p.prob(self.p.samples))
+        current_weight = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
+            self.p.prob(self.p.samples)
+        )
         new_weight = torch.empty(batch_size, device=device)
 
         for _ in range(steps):
@@ -460,7 +462,9 @@ class NormalizingFlow(nn.Module):
                 proposed_samples[:], proposed_log_det[:] = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
-            new_weight[:] = torch.abs(self.p.prob(proposed_samples))
+            new_weight[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
+                self.p.prob(proposed_samples)
+            )
 
             # Compute acceptance probabilities
             acceptance_probs = torch.clamp(
