@@ -38,7 +38,7 @@ class VegasMap(torch.nn.Module):
         self.register_buffer("inc", torch.Tensor(vegas_map.inc))
         self.register_buffer("ninc", torch.tensor(num_increments))
         self.register_buffer("dim", torch.tensor(num_input_channels))
-        self.register_buffer("x", torch.empty_like(self.y))
+        self.register_buffer("x", torch.empty(batchsize, num_input_channels))
         self.register_buffer("jac", torch.ones(batchsize))
 
         self.target = target
@@ -49,35 +49,33 @@ class VegasMap(torch.nn.Module):
         iy = torch.floor(y_ninc).long()
         dy_ninc = y_ninc - iy
 
-        self.jac.fill_(1.0)
+        x = torch.empty_like(y)
+        jac = torch.ones(y.shape[0], device=x.device)
+        # self.jac.fill_(1.0)
         for d in range(self.dim):
             # Handle the case where iy < ninc
             mask = iy[:, d] < self.ninc
             if mask.any():
-                self.x[mask, d] = (
-                    # self.grid[iy[mask, d], d] + self.inc[iy[mask, d], d] * dy_ninc[mask, d]
+                x[mask, d] = (
                     self.grid[d, iy[mask, d]]
                     + self.inc[d, iy[mask, d]] * dy_ninc[mask, d]
                 )
-                # self.jac[mask] *= self.inc[iy[mask, d], d] * self.ninc
-                self.jac[mask] *= self.inc[d, iy[mask, d]] * self.ninc
+                jac[mask] *= self.inc[d, iy[mask, d]] * self.ninc
 
             # Handle the case where iy >= ninc
             mask_inv = ~mask
             if mask_inv.any():
-                # self.x[mask_inv, d] = self.grid[self.ninc, d]
-                self.x[mask_inv, d] = self.grid[d, self.ninc]
-                # self.jac[mask_inv] *= self.inc[self.ninc - 1, d] * self.ninc
-                self.jac[mask_inv] *= self.inc[d, self.ninc - 1] * self.ninc
+                x[mask_inv, d] = self.grid[d, self.ninc]
+                jac[mask_inv] *= self.inc[d, self.ninc - 1] * self.ninc
 
-        # return self.x, torch.log(self.jac)
-        return self.x, self.jac
+        return x, jac
 
     @torch.no_grad()
     def inverse(self, x):
-        self.jac.fill_(1.0)
+        # self.jac.fill_(1.0)
+        y = torch.empty_like(x)
+        jac = torch.ones(x.shape[0], device=x.device)
         for d in range(self.dim):
-            # iy = torch.searchsorted(self.grid[:, d], x[:, d], right=True)
             iy = torch.searchsorted(self.grid[d, :], x[:, d].contiguous(), right=True)
 
             mask_valid = (iy > 0) & (iy <= self.ninc)
@@ -87,29 +85,24 @@ class VegasMap(torch.nn.Module):
             # Handle valid range (0 < iy <= self.ninc)
             if mask_valid.any():
                 iyi_valid = iy[mask_valid] - 1
-                self.y[mask_valid, d] = (
+                y[mask_valid, d] = (
                     iyi_valid
                     + (x[mask_valid, d] - self.grid[d, iyi_valid])
                     / self.inc[d, iyi_valid]
-                    # + (x[mask_valid, d] - self.grid[iyi_valid, d]) / self.inc[iyi_valid, d]
                 ) / self.ninc
-                self.jac[mask_valid] *= self.inc[d, iyi_valid] * self.ninc
-                # self.jac[mask_valid] *= self.inc[iyi_valid, d] * self.ninc
+                jac[mask_valid] *= self.inc[d, iyi_valid] * self.ninc
 
             # Handle lower bound (iy <= 0)\
             if mask_lower.any():
-                self.y[mask_lower, d] = 0.0
-                self.jac[mask_lower] *= self.inc[d, 0] * self.ninc
-                # self.jac[mask_lower] *= self.inc[0, d] * self.ninc
+                y[mask_lower, d] = 0.0
+                jac[mask_lower] *= self.inc[d, 0] * self.ninc
 
             # Handle upper bound (iy > self.ninc)
             if mask_upper.any():
-                self.y[mask_upper, d] = 1.0
-                self.jac[mask_upper] *= self.inc[d, self.ninc - 1] * self.ninc
-                # self.jac[mask_upper] *= self.inc[self.ninc - 1, d] * self.ninc
+                y[mask_upper, d] = 1.0
+                jac[mask_upper] *= self.inc[d, self.ninc - 1] * self.ninc
 
-        # return self.y, torch.log(1 / self.jac)
-        return self.y, self.jac
+        return y, jac
 
     @torch.no_grad()
     def integrate_block(self, num_blocks):
@@ -215,17 +208,18 @@ class VegasMap(torch.nn.Module):
             histr_weight / num_blocks,
         )
 
-    def mcmc(self, len_chain=1000, burn_in=None, thinning=1, alpha=1.0):
+    def mcmc(self, len_chain=1000, burn_in=None, thinning=1, alpha=1.0, step_size=0.05):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
         Pi(x) = alpha * q(x) + (1 - alpha) * p(x),
-        where q(x) is the learned distribution by the normalizing flow, and p(x) is the target distribution.
+        where q(x) is the learned distribution by the VEGAS map, and p(x) is the target distribution.
 
         Args:
             len_chain: Number of samples to draw.
             burn_in: Number of initial samples to discard.
             thinning: Interval to thin the chain.
             alpha: Annealing parameter.
+            step_size: random walk step size.
 
         Returns:
             mean, error: Mean and standard variance of the integrated samples.
@@ -234,6 +228,7 @@ class VegasMap(torch.nn.Module):
         device = self.y.device
         vars_shape = self.y.shape
         batch_size = vars_shape[0]
+        num_vars = vars_shape[1]
         if burn_in is None:
             burn_in = len_chain // 4
 
@@ -241,8 +236,7 @@ class VegasMap(torch.nn.Module):
         self.y[:] = torch.rand(vars_shape, device=device)
         current_samples, current_qinv = self.forward(self.y)
 
-        # print(self.x)
-        # print(self.jac)
+        proposed_y = torch.empty(vars_shape, device=device)
         proposed_samples = torch.empty(vars_shape, device=device)
         proposed_qinv = torch.empty(batch_size, device=device)
 
@@ -251,26 +245,41 @@ class VegasMap(torch.nn.Module):
         )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
         new_weight = torch.empty(batch_size, device=device)
 
+        bool_mask = torch.ones(batch_size, device=device, dtype=torch.bool)
         for _ in range(burn_in):
-            # Propose new samples using the normalizing flow
-            self.y[:] = torch.rand(vars_shape, device=device)
-            proposed_samples[:], proposed_qinv[:] = self.forward(self.y)
+            bool_mask[:] = torch.rand(batch_size, device=device) < 0.5
+            num_rand = bool_mask.sum().item()
+
+            # Propose new samples
+            proposed_y[bool_mask, :] = torch.rand(num_rand, num_vars, device=device)
+            proposed_y[~bool_mask, :] = self.y[~bool_mask, :] + torch.normal(
+                0, step_size, size=[batch_size - num_rand, num_vars], device=device
+            )
+            proposed_y = torch.where(proposed_y < 0, -proposed_y, proposed_y)
+            proposed_y = torch.where(proposed_y > 1, 2 - proposed_y, proposed_y)
+
+            proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
 
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(
                 self.target.prob(proposed_samples)
             )
 
             # Compute acceptance probabilities
-            acceptance_probs = torch.clamp(
-                new_weight
-                / current_weight  # Pi(x') / Pi(x)
-                * proposed_qinv
-                / current_qinv,  # q(x) / q(x')
-                max=1,
+            # acceptance_probs = torch.clamp(
+            #     new_weight
+            #     / current_weight  # Pi(x') / Pi(x)
+            #     * proposed_qinv
+            #     / current_qinv,  # q(x) / q(x')
+            #     max=1,
+            # )
+            acceptance_probs = new_weight / current_weight
+            acceptance_probs[bool_mask] *= (
+                proposed_qinv[bool_mask] / current_qinv[bool_mask]
             )
 
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
+            self.y = torch.where(accept.unsqueeze(1), proposed_y, self.y)
             current_samples = torch.where(
                 accept.unsqueeze(1), proposed_samples, current_samples
             )
@@ -287,20 +296,24 @@ class VegasMap(torch.nn.Module):
         var_q = torch.zeros_like(values)
         num_measure = 0
         for i in range(len_chain):
-            # Propose new samples using the normalizing flow
-            self.y[:] = torch.rand(vars_shape, device=device)
-            proposed_samples[:], proposed_qinv[:] = self.forward(self.y)
+            bool_mask[:] = torch.rand(batch_size, device=device) < 0.5
+            num_rand = bool_mask.sum().item()
 
-            new_prob = self.target.prob(proposed_samples)
+            # Propose new samples
+            proposed_y[bool_mask, :] = torch.rand(num_rand, num_vars, device=device)
+            proposed_y[~bool_mask, :] = self.y[~bool_mask, :] + torch.normal(
+                0, step_size, size=[batch_size - num_rand, num_vars], device=device
+            )
+            proposed_y = torch.where(proposed_y < 0, -proposed_y, proposed_y)
+            proposed_y = torch.where(proposed_y > 1, 2 - proposed_y, proposed_y)
+
+            proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
+            new_prob[:] = self.target.prob(proposed_samples)
+
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(new_prob)
-
-            # Compute acceptance probabilities
-            acceptance_probs = torch.clamp(
-                new_weight
-                / current_weight  # Pi(x') / Pi(x)
-                * proposed_qinv
-                / current_qinv,  # q(x) / q(x')
-                max=1,
+            acceptance_probs = new_weight / current_weight
+            acceptance_probs[bool_mask] *= (
+                proposed_qinv[bool_mask] / current_qinv[bool_mask]
             )
 
             # Accept or reject the proposals
@@ -308,7 +321,7 @@ class VegasMap(torch.nn.Module):
             if i % 400 == 0:
                 print("acceptance rate: ", accept.sum().item() / batch_size)
 
-            # self.x = torch.where(accept.unsqueeze(1), proposed_samples, self.x)
+            self.y = torch.where(accept.unsqueeze(1), proposed_y, self.y)
             current_prob = torch.where(accept, new_prob, current_prob)
             current_weight = torch.where(accept, new_weight, current_weight)
             current_qinv = torch.where(accept, proposed_qinv, current_qinv)

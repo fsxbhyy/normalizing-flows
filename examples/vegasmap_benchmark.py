@@ -26,11 +26,11 @@ solution = 0.2773  # order 2
 integration_domain = [[0, 1]] * dim
 
 num_adapt_samples = 1000000
-# batchsize = 8192
-batchsize = 32768
+batchsize = 4096
+# batchsize = 32768
 niters = 20
-# nblocks = 2000
-nblocks = 3052
+nblocks = 2000
+# nblocks = 3052
 therm_steps = 1000
 
 partition = [(order, 0, 0)]
@@ -119,14 +119,14 @@ def g(y):
     return jac * integrand_eval(x)
 
 
-# Importance sampling with Vegas map (torch)
-map_torch = map_torch.to(device)
-start_time = time.time()
-mean, std = map_torch.integrate_block(nblocks)
-print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
-end_time = time.time()
-wall_clock_time = end_time - start_time
-print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
+# # Importance sampling with Vegas map (torch)
+# map_torch = map_torch.to(device)
+# start_time = time.time()
+# mean, std = map_torch.integrate_block(nblocks)
+# print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
+# end_time = time.time()
+# wall_clock_time = end_time - start_time
+# print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
 
 # Vegas-map MCMC
 len_chain = nblocks

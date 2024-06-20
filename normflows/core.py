@@ -489,7 +489,6 @@ class NormalizingFlow(nn.Module):
         burn_in=None,
         thinning=1,
         alpha=1.0,
-        correlation_threshold=0.2,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -565,6 +564,7 @@ class NormalizingFlow(nn.Module):
         abs_values = torch.zeros(num_blocks, device=device)
         var_p = torch.zeros(num_blocks, device=device)
         var_q = torch.zeros(num_blocks, device=device)
+        cov_pq = torch.zeros(num_blocks, device=device)
         block_size = batch_size // num_blocks
         num_measure = 0
         for i in range(len_chain):
@@ -627,21 +627,27 @@ class NormalizingFlow(nn.Module):
                         (torch.exp(self.p.log_q[start:end]) / current_weight[start:end])
                         ** 2
                     )
+                    cov_pq[j] += torch.mean(
+                        self.p.val[start:end]
+                        * torch.exp(self.p.log_q[start:end])
+                        / current_weight[start:end] ** 2
+                    )
         values /= num_measure
         ref_values /= num_measure
         abs_values /= num_measure
         var_p /= num_measure
         var_q /= num_measure
+        cov_pq /= num_measure
 
-        # print("correlation of values: ", calculate_correlation(values))
-        # print("correlation of ref_values: ", calculate_correlation(ref_values))
-        # while (
-        #     calculate_correlation(values) > correlation_threshold
-        #     or calculate_correlation(ref_values) > correlation_threshold
-        # ):
         while (
             kstest(
                 values.cpu(), "norm", args=(values.mean().item(), values.std().item())
+            )[1]
+            < 0.05
+            or kstest(
+                ref_values.cpu(),
+                "norm",
+                args=(ref_values.mean().item(), ref_values.std().item()),
             )[1]
             < 0.05
         ):
@@ -660,12 +666,13 @@ class NormalizingFlow(nn.Module):
             ref_values = (ref_values[even_idx] + ref_values[odd_idx]) / 2.0
             var_p = (var_p[even_idx] + var_p[odd_idx]) / 2.0
             var_q = (var_q[even_idx] + var_q[odd_idx]) / 2.0
-            # k = 0
-            # for j in range(0, num_blocks):
-            #     values[j] = (values[k] + values[k + 1]) / 2.0
-            #     abs_values[j] = (abs_values[k] + abs_values[k + 1]) / 2.0
-            #     ref_values[j] = (ref_values[k] + ref_values[k + 1]) / 2.0
-            #     k += 2
+            cov_pq = (cov_pq[even_idx] + cov_pq[odd_idx]) / 2.0
+        # k = 0
+        # for j in range(0, num_blocks):
+        #     values[j] = (values[k] + values[k + 1]) / 2.0
+        #     abs_values[j] = (abs_values[k] + abs_values[k + 1]) / 2.0
+        #     ref_values[j] = (ref_values[k] + ref_values[k + 1]) / 2.0
+        #     k += 2
         # values = values[:num_blocks]
         # abs_values = abs_values[:num_blocks]
         # ref_values = ref_values[:num_blocks]
@@ -718,6 +725,7 @@ class NormalizingFlow(nn.Module):
 
         err_var_p = torch.std(var_p) / num_blocks**0.5
         err_var_q = torch.std(var_q) / num_blocks**0.5
+        err_cov_pq = torch.std(cov_pq) / num_blocks**0.5
         print(
             "variance of p: {:.5e} +/- {:.5e}".format(
                 var_p.mean().item(), err_var_p.item()
@@ -727,6 +735,28 @@ class NormalizingFlow(nn.Module):
             "variance of q: {:.5e} +/- {:.5e}".format(
                 var_q.mean().item(), err_var_q.item()
             )
+        )
+        print(
+            "covariance of pq: {:.5e} +/- {:.5e}".format(
+                cov_pq.mean().item(), err_cov_pq.item()
+            )
+        )
+
+        I_alpha = alpha + (1 - alpha) * abs_val_mean.item()
+        print("I_alpha: ", I_alpha)
+
+        var_pq_mean = I_alpha**2 * (
+            var_p.mean() + var_q.mean() * ratio_mean**2 - 2 * ratio_mean * cov_pq.mean()
+        )
+        var_pq = (alpha + (1 - alpha) * abs_values) ** 2 * (
+            var_p + var_q * values**2 - 2 * values * cov_pq
+        )
+        var_pq_err = torch.std(var_pq) / num_blocks**0.5
+        print(
+            "Composite variance: {:.5e} +/- {:.5e}  ".format(
+                var_pq_mean.item(), var_pq_err.item()
+            ),
+            var_pq.mean(),
         )
 
         return ratio_mean, ratio_err

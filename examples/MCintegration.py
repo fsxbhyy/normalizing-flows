@@ -15,10 +15,11 @@ num_loops = [2, 6, 15, 39, 111, 448]
 order = 2
 beta = 16.0
 nfm_batchsize = 20000
-batch_size = 1000
-Nblocks = batch_size
+batch_size = 2000
+# Nblocks = batch_size
+Nblocks = 400
 len_chain = 2000
-thermal_steps = len_chain // 2
+thermal_steps = len_chain // 3
 
 num_hidden_layers = 1
 
