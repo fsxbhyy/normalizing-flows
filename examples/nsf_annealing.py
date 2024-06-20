@@ -237,7 +237,9 @@ def train_model_annealing(
     annealing_factor=1.01,
     init_beta=1.0,
     final_beta=None,
+    proposal_model=None,
     save_checkpoint=True,
+    sample_interval=5,
 ):
     nfm = nfm.to(device)
     if final_beta is None:
@@ -284,9 +286,12 @@ def train_model_annealing(
         loss_accum = torch.zeros(1, requires_grad=False, device=device)
         for _ in range(accum_iter):
             # Compute loss
-            loss = nfm.IS_forward_kld(num_samples)
-            # x = nfm.mcmc_sample()
-            # loss = nfm.forward_kld(x)
+            if proposal_model is not None and current_beta == final_beta:
+                x = proposal_model.mcmc_sample(sample_interval)
+                loss = nfm.forward_kld(x)
+            else:
+                loss = nfm.IS_forward_kld(num_samples)
+
             loss = loss / accum_iter
             loss_accum += loss
             # Do backprop and optimizer step
