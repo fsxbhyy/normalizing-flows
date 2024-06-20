@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --partition=kshdnormal
 #SBATCH --nodes=4
-#SBATCH --gres=dcu:4
+#SBATCH --gres=gpu:4
 
 source /public/home/taowang/miniconda3/etc/profile.d/conda.sh
 module purge

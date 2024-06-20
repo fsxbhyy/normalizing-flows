@@ -338,7 +338,7 @@ def main(argv):
 
     nfm = generate_model(
         diagram,
-        hidden_layers=hidden_layers,
+        num_blocks=hidden_layers,
         num_hidden_channels=num_hidden_channels,
         num_bins=num_bins,
     )

@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import re
 import normflows as nf
+import mpmath
+from mpmath import polylog, gamma, findroot
 
 # from nsf_integrator import generate_model, train_model
 from nsf_annealing import generate_model, train_model, train_model_annealing
@@ -59,30 +61,14 @@ def _StringtoIntVector(s):
     return [int(match) for match in re.findall(pattern, s)]
 
 
-def chemical_potential(beta):
-    if beta == 0.1:
-        _mu = -37.301528674058275
-    elif beta == 1.0:
-        _mu = -0.021460754987022185
-    elif beta == 2.0:
-        _mu = 0.7431120842589388
-    elif beta == 4.0:
-        _mu = 0.9426157552012961
-    elif beta == 8.0:
-        _mu = 0.986801399943294
-    elif beta == 10.0:
-        _mu = 0.9916412363704453
-    elif beta == 16.0:
-        _mu = 0.9967680535828609
-    elif beta == 32.0:
-        _mu = 0.9991956396090637
-    elif beta == 64.0:
-        _mu = 0.9997991296749593
-    elif beta == 128.0:
-        _mu = 0.9999497960580543
-    else:
-        _mu = 1.0
-    return _mu
+def chemical_potential(beta, dim=3):
+    def g(mu):
+        return float(
+            mpmath.re(polylog(dim / 2, -mpmath.exp(beta * mu)))
+            + 1 / gamma(1 + dim / 2) * beta ** (dim / 2)
+        )
+
+    return float(findroot(g, 0))
 
 
 class FeynmanDiagram(nf.distributions.Target):
