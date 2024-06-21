@@ -247,16 +247,17 @@ class VegasMap(torch.nn.Module):
 
         bool_mask = torch.ones(batch_size, device=device, dtype=torch.bool)
         for _ in range(burn_in):
-            bool_mask[:] = torch.rand(batch_size, device=device) < 0.5
+            # bool_mask[:] = torch.rand(batch_size, device=device) < 0.5
+            bool_mask[:] = True
             num_rand = bool_mask.sum().item()
 
             # Propose new samples
             proposed_y[bool_mask, :] = torch.rand(num_rand, num_vars, device=device)
-            proposed_y[~bool_mask, :] = self.y[~bool_mask, :] + torch.normal(
-                0, step_size, size=[batch_size - num_rand, num_vars], device=device
-            )
-            proposed_y = torch.where(proposed_y < 0, -proposed_y, proposed_y)
-            proposed_y = torch.where(proposed_y > 1, 2 - proposed_y, proposed_y)
+            proposed_y[~bool_mask, :] = (
+                self.y[~bool_mask, :]
+                + (torch.rand(batch_size - num_rand, num_vars, device=device) - 0.5)
+                * step_size
+            ) % 1.0
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
 
@@ -265,16 +266,8 @@ class VegasMap(torch.nn.Module):
             )
 
             # Compute acceptance probabilities
-            # acceptance_probs = torch.clamp(
-            #     new_weight
-            #     / current_weight  # Pi(x') / Pi(x)
-            #     * proposed_qinv
-            #     / current_qinv,  # q(x) / q(x')
-            #     max=1,
-            # )
-            acceptance_probs = new_weight / current_weight
-            acceptance_probs[bool_mask] *= (
-                proposed_qinv[bool_mask] / current_qinv[bool_mask]
+            acceptance_probs = (
+                new_weight / current_weight * proposed_qinv / current_qinv
             )
 
             # Accept or reject the proposals
@@ -296,24 +289,24 @@ class VegasMap(torch.nn.Module):
         var_q = torch.zeros_like(values)
         num_measure = 0
         for i in range(len_chain):
-            bool_mask[:] = torch.rand(batch_size, device=device) < 0.5
+            # bool_mask[:] = torch.rand(batch_size, device=device) < 0.5
+            bool_mask[:] = True
             num_rand = bool_mask.sum().item()
 
             # Propose new samples
             proposed_y[bool_mask, :] = torch.rand(num_rand, num_vars, device=device)
-            proposed_y[~bool_mask, :] = self.y[~bool_mask, :] + torch.normal(
-                0, step_size, size=[batch_size - num_rand, num_vars], device=device
-            )
-            proposed_y = torch.where(proposed_y < 0, -proposed_y, proposed_y)
-            proposed_y = torch.where(proposed_y > 1, 2 - proposed_y, proposed_y)
+            proposed_y[~bool_mask, :] = (
+                self.y[~bool_mask, :]
+                + (torch.rand(batch_size - num_rand, num_vars, device=device) - 0.5)
+                * step_size
+            ) % 1.0
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
             new_prob[:] = self.target.prob(proposed_samples)
 
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(new_prob)
-            acceptance_probs = new_weight / current_weight
-            acceptance_probs[bool_mask] *= (
-                proposed_qinv[bool_mask] / current_qinv[bool_mask]
+            acceptance_probs = (
+                new_weight / current_weight * proposed_qinv / current_qinv
             )
 
             # Accept or reject the proposals
