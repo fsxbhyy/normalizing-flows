@@ -34,30 +34,30 @@ num_bins = 8
 accum_iter = 1
 
 init_lr = 8e-3
-Nepochs = 100
+Nepochs = 310
 Nblocks = 400
 
 # is_save = True
 is_save = False
-is_annealing = True
-# is_annealing = False
+# is_annealing = True
+is_annealing = False
 has_init_model = True
 # has_init_model = False
-has_proposal_nfm = True
-# has_proposal_nfm = False
+# has_proposal_nfm = True
+has_proposal_nfm = False
 multi_gpu = False
 
 if is_annealing:
-    init_beta = 1.0
-    sample_interval = 8
-    pmodel_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state.pt".format(
-        order, beta, num_blocks
-    )
-
+    init_beta = 0.5
 if has_init_model:
     init_beta = 6.623095521562637
-    init_state_dict_path = "nfm_o{0}_beta{1}_checkpoint.pth".format(order, init_beta)
-
+    # init_state_dict_path = "nfm_o{0}_beta{1}_checkpoint.pth".format(order, init_beta)
+    init_state_dict_path = "nfm_beta{0}_checkpoint.pth".format(init_beta)
+if has_proposal_nfm:
+    sample_interval = 5
+    pmodel_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state1.pt".format(
+        order, beta, num_blocks
+    )
 
 print(
     "num_blocks:",
@@ -440,9 +440,9 @@ def main(argv):
         pmodel_state_dict.update(partial_state_dict)
         nfm.load_state_dict(pmodel_state_dict)
 
-    for name, param in nfm.named_parameters():
-        if param.requires_grad:
-            print(name, param.data.shape)
+    # for name, param in nfm.named_parameters():
+    #     if param.requires_grad:
+    #         print(name, param.data.shape)
     epochs = Nepochs
     blocks = Nblocks
 
@@ -452,7 +452,7 @@ def main(argv):
     with torch.no_grad():
         mean, err, partition_z = nfm.integrate_block(blocks)
     print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = nfm.loss_block(20, partition_z)
+    loss = nfm.loss_block(100, partition_z)
     print("Initial loss: ", loss)
 
     print(
@@ -582,11 +582,11 @@ def main(argv):
         )
     )
     loss = nfm.loss_block(200, partition_z)
-    print("Final loss: ", loss)
+    print("Final loss: ", loss, "\n")
 
     start_time = time.time()
     mean_mcmc, err_mcmc = nfm.mcmc_integration(
-        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.1
+        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.0
     )
     print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
     print(

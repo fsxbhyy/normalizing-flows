@@ -184,6 +184,11 @@ def train_model(
         )  # Gradient clipping
         optimizer.step()
 
+        if it % 10 == 0:
+            print(
+                f"Iteration {it}, Loss: {loss_accum.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
+            )
+
         # Scheduler step after optimizer step
         if it < warmup_epochs:
             scheduler_warmup.step()
@@ -197,11 +202,6 @@ def train_model(
         # # Log metrics
         # writer.add_scalar("Loss/train", loss.item(), it)
         # writer.add_scalar("Learning Rate", optimizer.param_groups[0]["lr"], it)
-
-        if it % 10 == 0:
-            print(
-                f"Iteration {it}, Loss: {loss_accum.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
-            )
 
         # save checkpoint
         # if it % 100 == 0 and it > 0 and save_checkpoint:
@@ -234,9 +234,10 @@ def train_model_annealing(
     num_samples=10000,
     accum_iter=1,
     init_lr=8e-3,
-    init_beta=1.0,
+    init_beta=0.5,
     final_beta=None,
-    annealing_factor=1.01,
+    annealing_factor=1.25,
+    steps_per_temp=50,
     proposal_model=None,
     save_checkpoint=True,
     sample_interval=5,
@@ -260,16 +261,19 @@ def train_model_annealing(
     # Initialize optimizer and scheduler
     optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
     # CosineAnnealingWarmRestarts scheduler
-    # T_0 = 50  # Initial period for the first restart
-    # T_mult = 2  # Multiplicative factor for subsequent periods
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-    #     optimizer, T_0=T_0, T_mult=T_mult
-    # )
+    T_0 = steps_per_temp  # Initial period for the first restart
+    T_mult = 1  # Multiplicative factor for subsequent periods
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=T_0, T_mult=T_mult
+    )
 
     # ReduceLROnPlateau scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=10, verbose=True
-    )
+    # scheduler_annealing = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #     optimizer, mode="min", factor=0.9, patience=5, verbose=True
+    # )
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #     optimizer, mode="min", factor=0.5, patience=10, verbose=True
+    # )
 
     # Use a learning rate warmup
     warmup_epochs = 10
@@ -304,33 +308,42 @@ def train_model_annealing(
         )  # Gradient clipping
         optimizer.step()
 
-        # Scheduler step after optimizer step
-        if it < warmup_epochs:
-            scheduler_warmup.step()
-        # else:
-        elif it >= 290:
-            scheduler.step(loss_accum)  # ReduceLROnPlateau
-            # scheduler.step()  # CosineAnnealingLR
-            # scheduler_plateau.step(loss_accum)
-
-        # Log loss
-        loss_hist = np.append(loss_hist, loss_accum.item())
         current_lr = optimizer.param_groups[0]["lr"]
-
-        if it % 5 == 0:
+        if it % 10 == 0:
             print(
                 f"Iteration {it}, beta: {current_beta}, Loss: {loss_accum.item()}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
             )
 
-        if it > warmup_epochs and current_beta < final_beta:
+        # Scheduler step after optimizer step
+        if it < warmup_epochs:
+            scheduler_warmup.step()
+        # elif current_beta < final_beta:
+        #     scheduler_annealing.step(loss_accum)  # ReduceLROnPlateau
+        else:
+            # scheduler.step(loss_accum)  # ReduceLROnPlateau
+            scheduler.step(it - warmup_epochs)  # CosineAnnealingLR
+
+        # Log loss
+        loss_hist = np.append(loss_hist, loss_accum.item())
+
+        if (
+            it > warmup_epochs
+            and (it - warmup_epochs) % steps_per_temp == 0
+            and current_beta < final_beta
+        ):
             current_beta = current_beta * annealing_factor
-            if current_beta > final_beta:
+            if current_beta >= final_beta:
                 current_beta = final_beta
+                # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                #     optimizer, mode="min", factor=0.5, patience=10, verbose=True
+                # )
+                scheduler.T_0 = max_iter - it
+                scheduler.T_i = max_iter - it
             nfm.p.beta = current_beta / nfm.p.EF
             nfm.p.mu = chemical_potential(current_beta, nfm.p.dim) * nfm.p.EF
 
         # save checkpoint
-        if it % 100 == 0 and it > 0 and save_checkpoint:
+        if it > warmup_epochs and (it - warmup_epochs) % 100 == 0 and save_checkpoint:
             print(f"Saving NF model with beta={current_beta}...")
             torch.save(
                 {
