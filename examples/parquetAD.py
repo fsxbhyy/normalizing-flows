@@ -34,17 +34,30 @@ num_bins = 8
 accum_iter = 1
 
 init_lr = 8e-3
-Nepochs = 50
-Nblocks = 100
+Nepochs = 100
+Nblocks = 400
 
-is_save = True
-# is_annealing = True
-is_annealing = False
-# has_proposal_nfm = False
+# is_save = True
+is_save = False
+is_annealing = True
+# is_annealing = False
+has_init_model = True
+# has_init_model = False
 has_proposal_nfm = True
+# has_proposal_nfm = False
 multi_gpu = False
 
-model_state_dict_path = "nfm_o{0}_beta{1}_l1c32b8_state.pt".format(order, beta)
+if is_annealing:
+    init_beta = 1.0
+    sample_interval = 8
+    pmodel_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state.pt".format(
+        order, beta, num_blocks
+    )
+
+if has_init_model:
+    init_beta = 6.623095521562637
+    init_state_dict_path = "nfm_o{0}_beta{1}_checkpoint.pth".format(order, init_beta)
+
 
 print(
     "num_blocks:",
@@ -415,6 +428,18 @@ def main(argv):
         num_hidden_channels=num_hidden_channels,
         num_bins=num_bins,
     )
+    if has_init_model:
+        state_dict = torch.load(init_state_dict_path)["model_state_dict"]
+
+        pmodel_state_dict = nfm.state_dict()
+        partial_state_dict = {
+            k: v
+            for k, v in state_dict.items()
+            if k in pmodel_state_dict and "p." not in k
+        }
+        pmodel_state_dict.update(partial_state_dict)
+        nfm.load_state_dict(pmodel_state_dict)
+
     for name, param in nfm.named_parameters():
         if param.requires_grad:
             print(name, param.data.shape)
@@ -454,7 +479,7 @@ def main(argv):
             num_hidden_channels=num_hidden_channels,
             num_bins=num_bins,
         )
-        state_dict = torch.load(model_state_dict_path)
+        state_dict = torch.load(pmodel_state_dict_path)
         # proposal_model.load_state_dict(state_dict)
 
         pmodel_state_dict = proposal_model.state_dict()
@@ -482,14 +507,28 @@ def main(argv):
             )
             run_train(trainfn, world_size)
         else:
-            train_model(
-                nfm,
-                epochs,
-                diagram.batchsize,
-                proposal_model=proposal_model,
-                accum_iter=accum_iter,
-                init_lr=init_lr,
-            )
+            print("initial learning rate: ", init_lr)
+            if is_annealing:
+                train_model_annealing(
+                    nfm,
+                    epochs,
+                    diagram.batchsize,
+                    accum_iter,
+                    init_lr,
+                    init_beta=init_beta,
+                    proposal_model=proposal_model,
+                    sample_interval=sample_interval,
+                )
+            else:
+                train_model(
+                    nfm,
+                    epochs,
+                    diagram.batchsize,
+                    accum_iter=accum_iter,
+                    init_lr=init_lr,
+                    proposal_model=proposal_model,
+                    sample_interval=sample_interval,
+                )
     else:
         start_time = time.time()
         if multi_gpu:
@@ -508,7 +547,7 @@ def main(argv):
             print("initial learning rate: ", init_lr)
             if is_annealing:
                 train_model_annealing(
-                    nfm, epochs, diagram.batchsize, accum_iter, init_lr
+                    nfm, epochs, diagram.batchsize, accum_iter, init_lr, init_beta
                 )
             else:
                 train_model(nfm, epochs, diagram.batchsize, accum_iter, init_lr)
@@ -542,6 +581,8 @@ def main(argv):
             blocks * diagram.batchsize, mean, err, nfm.p.targetval
         )
     )
+    loss = nfm.loss_block(200, partition_z)
+    print("Final loss: ", loss)
 
     start_time = time.time()
     mean_mcmc, err_mcmc = nfm.mcmc_integration(
@@ -554,8 +595,6 @@ def main(argv):
         )
     )
 
-    loss = nfm.loss_block(100, partition_z)
-    print("Final loss: ", loss)
     # torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
 
 

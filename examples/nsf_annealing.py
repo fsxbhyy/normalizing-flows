@@ -129,6 +129,7 @@ def train_model(
         save_checkpoint: Whether to save checkpoints during training every 100 iterations.
     """
     nfm = nfm.to(device)
+    order = nfm.p.innerLoopNum
     nfm.train()  # Set model to training mode
     loss_hist = []
     # writer = SummaryWriter()  # Initialize TensorBoard writer
@@ -210,14 +211,13 @@ def train_model(
                     "model_state_dict": nfm.module.state_dict()
                     if hasattr(nfm, "module")
                     else nfm.state_dict(),
-                    # "optimizer_state_dict": optimizer.state_dict(),
-                    # "scheduler_state_dict": scheduler.state_dict()
-                    # if has_scheduler
-                    # else None,
-                    # "loss_hist": loss_hist,
-                    # "it": it,
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict()
+                    if has_scheduler
+                    else None,
+                    "loss_hist": loss_hist,
                 },
-                f"checkpoint_{it}.pt",
+                f"nfm_o{order}_checkpoint_{it}.pth",
                 # f"checkpoint_{it}.pth",
             )
 
@@ -234,9 +234,9 @@ def train_model_annealing(
     num_samples=10000,
     accum_iter=1,
     init_lr=8e-3,
-    annealing_factor=1.01,
     init_beta=1.0,
     final_beta=None,
+    annealing_factor=1.01,
     proposal_model=None,
     save_checkpoint=True,
     sample_interval=5,
@@ -246,6 +246,7 @@ def train_model_annealing(
         final_beta = (nfm.p.beta * nfm.p.EF).item()
     assert final_beta > init_beta, "final_beta should be greater than init_beta"
     nfm.p.beta = init_beta / nfm.p.EF
+    order = nfm.p.innerLoopNum
 
     nfm.p.mu = chemical_potential(init_beta, nfm.p.dim) * nfm.p.EF
 
@@ -259,8 +260,8 @@ def train_model_annealing(
     # Initialize optimizer and scheduler
     optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
     # CosineAnnealingWarmRestarts scheduler
-    T_0 = 50  # Initial period for the first restart
-    T_mult = 2  # Multiplicative factor for subsequent periods
+    # T_0 = 50  # Initial period for the first restart
+    # T_mult = 2  # Multiplicative factor for subsequent periods
     # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
     #     optimizer, T_0=T_0, T_mult=T_mult
     # )
@@ -340,7 +341,7 @@ def train_model_annealing(
                     "scheduler_state_dict": scheduler.state_dict(),
                     "loss_hist": loss_hist,
                 },
-                f"nfm_beta{current_beta}_checkpoint.pth",
+                f"nfm_o{order}_beta{current_beta}_checkpoint.pth",
             )
     # Final save
     if save_checkpoint:
@@ -353,7 +354,7 @@ def train_model_annealing(
                 "scheduler_state_dict": scheduler.state_dict(),
                 "loss_hist": loss_hist,
             },
-            f"nfm_beta{current_beta}_final.pt",
+            f"nfm_o{order}_beta{current_beta}_final.pth",
         )
 
     print(f"Annealing training complete. Final beta: {current_beta}")
