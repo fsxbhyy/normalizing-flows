@@ -22,13 +22,13 @@ root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 # from absl import app, flags
 num_loops = [2, 6, 15, 39, 111, 448]
 num_roots = [1, 2, 3, 4, 5, 6]
-order = 3
+order = 5
 beta = 1.0
 batch_size = 10000
 hidden_layers = 1
 num_hidden_channels = 32
 num_bins = 8
-accum_iter = 8
+accum_iter = 1
 
 init_lr = 8e-3
 Nepochs = 100
@@ -266,7 +266,8 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def prob(self, var):
         self._evalleaf(var)
-        self.eval_graph(self.root, self.leafvalues)
+        #self.eval_graph(self.root, self.leafvalues)
+        self.root[:] = self.eval_graph(self.leafvalues)
         return self.root.sum(dim=1) * (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
