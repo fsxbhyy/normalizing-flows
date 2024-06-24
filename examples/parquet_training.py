@@ -39,6 +39,23 @@ is_annealing = False
 has_proposal_nfm = False
 multi_gpu = True
 
+
+
+if order == 1:
+    eval_graph = torch.compile(eval_graph100)
+elif order == 2:
+    eval_graph = torch.compile(eval_graph200)
+elif order == 3:
+    eval_graph = torch.compile(eval_graph300)
+elif order == 4:
+    eval_graph = torch.compile(eval_graph400)
+elif order == 5:
+    eval_graph = torch.compile(eval_graph500)
+elif order == 6:
+    eval_graph = torch.compile(eval_graph600)
+else:
+    raise ValueError("Invalid order")
+
 # print("beta:", beta, "order:", order, "batchsize:", batch_size)
 # print(
 #    "hidden_layers:",
@@ -167,20 +184,20 @@ class FeynmanDiagram(nf.distributions.Target):
         self.extn = 0
         self.targetval = 4.0
 
-        if order == 1:
-            self.eval_graph = eval_graph100
-        elif order == 2:
-            self.eval_graph = eval_graph200
-        elif order == 3:
-            self.eval_graph = eval_graph300
-        elif order == 4:
-            self.eval_graph = eval_graph400
-        elif order == 5:
-            self.eval_graph = eval_graph500
-        elif order == 6:
-            self.eval_graph = eval_graph600
-        else:
-            raise ValueError("Invalid order")
+        # if order == 1:
+        #     self.eval_graph = eval_graph100
+        # elif order == 2:
+        #     self.eval_graph = eval_graph200
+        # elif order == 3:
+        #     self.eval_graph = eval_graph300
+        # elif order == 4:
+        #     self.eval_graph = eval_graph400
+        # elif order == 5:
+        #     self.eval_graph = eval_graph500
+        # elif order == 6:
+        #     self.eval_graph = eval_graph600
+        # else:
+        #     raise ValueError("Invalid order")
 
     @torch.no_grad()
     def kernelFermiT(self):
@@ -267,7 +284,7 @@ class FeynmanDiagram(nf.distributions.Target):
     def prob(self, var):
         self._evalleaf(var)
         #self.eval_graph(self.root, self.leafvalues)
-        self.root[:] = self.eval_graph(self.leafvalues)
+        self.root[:] = eval_graph(self.leafvalues) #self.eval_graph(self.leafvalues)
         return self.root.sum(dim=1) * (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
