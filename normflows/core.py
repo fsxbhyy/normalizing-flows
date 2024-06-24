@@ -128,7 +128,7 @@ class NormalizingFlow(nn.Module):
         # utils.set_requires_grad(self, True)
         return torch.mean(torch.square(prob.detach() - q) / q / q.detach())
 
-    def IS_forward_kld(self, num_samples=1, beta=1.0):
+    def IS_forward_kld(self, num_samples=None):
         """Estimates forward KL divergence, see [arXiv 1912.02762](https://arxiv.org/abs/1912.02762)
 
         Args:
@@ -137,6 +137,8 @@ class NormalizingFlow(nn.Module):
         Returns:
           Estimate of forward KL divergence averaged over batch
         """
+        if num_samples is None:
+            num_samples = self.p.batchsize
         utils.set_requires_grad(self, False)
         z, _ = self.q0(num_samples)
         for flow in self.flows:

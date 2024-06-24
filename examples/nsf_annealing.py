@@ -247,9 +247,8 @@ def train_model_annealing(
         final_beta = (nfm.p.beta * nfm.p.EF).item()
     assert final_beta > init_beta, "final_beta should be greater than init_beta"
     nfm.p.beta = init_beta / nfm.p.EF
-    order = nfm.p.innerLoopNum
-
     nfm.p.mu = chemical_potential(init_beta, nfm.p.dim) * nfm.p.EF
+    order = nfm.p.innerLoopNum
 
     nfm.train()  # Set model to training mode
     current_beta = init_beta
@@ -326,6 +325,25 @@ def train_model_annealing(
         # Log loss
         loss_hist = np.append(loss_hist, loss_accum.item())
 
+        # save checkpoint
+        # if it > warmup_epochs and (it - warmup_epochs) % 100 == 0 and save_checkpoint:
+        if it > warmup_epochs and scheduler.T_cur == scheduler.T_0 and save_checkpoint:
+            print(
+                f"Saving NF model at the end of a CosineAnnealingWarmRestarts cycle with beta={current_beta}..."
+            )
+            torch.save(
+                {
+                    "model_state_dict": nfm.module.state_dict()
+                    if hasattr(nfm, "module")
+                    else nfm.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "loss_hist": loss_hist,
+                    "beta": current_beta,
+                },
+                f"nfm_o{order}_beta{current_beta}_cyclend_checkpoint{it}.pth",
+            )
+
         if (
             it > warmup_epochs
             and (it - warmup_epochs) % steps_per_temp == 0
@@ -337,14 +355,130 @@ def train_model_annealing(
                 # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 #     optimizer, mode="min", factor=0.5, patience=10, verbose=True
                 # )
-                scheduler.T_0 = max_iter - it
-                scheduler.T_i = max_iter - it
+                # scheduler.T_0 = max_iter - it
+                # scheduler.T_i = max_iter - it
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                    optimizer, T_0=T_0 * 2, T_mult=2
+                )
             nfm.p.beta = current_beta / nfm.p.EF
             nfm.p.mu = chemical_potential(current_beta, nfm.p.dim) * nfm.p.EF
 
-        # save checkpoint
-        if it > warmup_epochs and (it - warmup_epochs) % 100 == 0 and save_checkpoint:
-            print(f"Saving NF model with beta={current_beta}...")
+    # Final save
+    torch.save(
+        {
+            "model_state_dict": nfm.module.state_dict()
+            if hasattr(nfm, "module")
+            else nfm.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "loss_hist": loss_hist,
+        },
+        f"nfm_o{order}_beta{current_beta}_final.pth",
+    )
+
+    print(f"Annealing training complete. Final beta: {current_beta}")
+    print(loss_hist)
+
+
+def retrain_model(
+    nfm,
+    checkpoint_path,
+    max_iter=1000,
+    accum_iter=1,
+    init_beta=None,
+    final_beta=None,
+    annealing_factor=1.2,
+    steps_per_temp=50,
+    init_lr=8e-3,
+    proposal_model=None,
+    sample_interval=5,
+    save_checkpoint=True,
+):
+    order = nfm.p.innerLoopNum
+    if final_beta is None:
+        final_beta = (nfm.p.beta * nfm.p.EF).item()
+
+    # Load the checkpoint
+    checkpoint = torch.load(checkpoint_path)
+    checkpoint_state_dict = checkpoint["model_state_dict"]
+
+    # Load model state
+    nfm_state_dict = nfm.state_dict()
+    partial_state_dict = {
+        k: v
+        for k, v in checkpoint_state_dict.items()
+        if k in nfm_state_dict and "p." not in k
+    }
+    nfm_state_dict.update(partial_state_dict)
+    nfm.load_state_dict(nfm_state_dict)
+    if init_beta is None:
+        init_beta = checkpoint["beta"]
+    current_beta = init_beta
+    nfm.p.beta = init_beta / nfm.p.EF
+    nfm.p.mu = chemical_potential(init_beta, nfm.p.dim) * nfm.p.EF
+
+    nfm.train()  # Set model to training mode
+
+    # Load optimizer state
+    optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    # Load scheduler state
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=steps_per_temp, T_mult=1
+    )
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+    # Load other states
+    loss_hist = checkpoint["loss_hist"]
+
+    print("Resume training from checkpoint\n")
+
+    for it in tqdm(range(max_iter)):
+        start_time = time.time()
+        optimizer.zero_grad()
+
+        loss_accum = torch.zeros(1, requires_grad=False, device=device)
+        for _ in range(accum_iter):
+            # Compute loss
+            if proposal_model is not None and current_beta == final_beta:
+                x = proposal_model.mcmc_sample(sample_interval)
+                loss = nfm.forward_kld(x)
+            else:
+                loss = nfm.IS_forward_kld()
+
+            loss = loss / accum_iter
+            loss_accum += loss
+            # Do backprop and optimizer step
+            if ~(torch.isnan(loss) | torch.isinf(loss)):
+                loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(nfm.parameters(), max_norm=1.0)
+        optimizer.step()
+
+        current_lr = optimizer.param_groups[0]["lr"]
+        if it % 10 == 0:
+            print(
+                f"Iteration {it}, beta: {current_beta}, Loss: {loss_accum}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
+            )
+
+        scheduler.step(it)
+
+        loss_hist = np.append(loss_hist, loss_accum.item())
+
+        if it % steps_per_temp == 0 and current_beta < final_beta:
+            current_beta = min(final_beta, current_beta * annealing_factor)
+            nfm.p.beta = current_beta / nfm.p.EF
+            nfm.p.mu = chemical_potential(current_beta) * nfm.p.EF
+            optimizer.param_groups[0]["lr"] = init_lr  # 重置学习率
+            print(
+                f"Annealing beta to {current_beta}, resetting learning rate to {init_lr}"
+            )
+
+        if scheduler.T_cur == scheduler.T_0 and save_checkpoint:
+            print(
+                f"Saving NF model at the end of a CosineAnnealingWarmRestarts cycle with beta={current_beta}..."
+            )
             torch.save(
                 {
                     "model_state_dict": nfm.module.state_dict()
@@ -353,25 +487,38 @@ def train_model_annealing(
                     "optimizer_state_dict": optimizer.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict(),
                     "loss_hist": loss_hist,
+                    "beta": current_beta,
                 },
-                f"nfm_o{order}_beta{current_beta}_checkpoint.pth",
+                f"nfm_o{order}_beta{current_beta}_cyclend_checkpoint{it}.pth",
             )
-    # Final save
-    if save_checkpoint:
-        torch.save(
-            {
-                "model_state_dict": nfm.module.state_dict()
-                if hasattr(nfm, "module")
-                else nfm.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
-                "loss_hist": loss_hist,
-            },
-            f"nfm_o{order}_beta{current_beta}_final.pth",
-        )
 
-    print(f"Annealing training complete. Final beta: {current_beta}")
-    print(loss_hist)
+        if it > 0 and it % steps_per_temp == 0 and current_beta < final_beta:
+            current_beta = current_beta * annealing_factor
+            if current_beta >= final_beta:
+                current_beta = final_beta
+                # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                #     optimizer, mode="min", factor=0.5, patience=10, verbose=True
+                # )
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                    optimizer, T_0=scheduler.T_0 * 2, T_mult=2
+                )
+            nfm.p.beta = current_beta / nfm.p.EF
+            nfm.p.mu = chemical_potential(current_beta, nfm.p.dim) * nfm.p.EF
+
+    # Final save
+    torch.save(
+        {
+            "model_state_dict": nfm.module.state_dict()
+            if hasattr(nfm, "module")
+            else nfm.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "loss_hist": loss_hist,
+        },
+        f"nfm_o{order}_beta{current_beta}_final.pth",
+    )
+
+    print(f"Annealing complete. Final beta: {current_beta}")
 
 
 def chemical_potential(beta, dim=3):
