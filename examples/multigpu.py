@@ -19,13 +19,27 @@ from tqdm import tqdm
 # import h5py
 # import idr_torch
 from absl import app, flags
-
+import socket
 
 # enable_cuda = True
 # device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
+def get_ip() -> str:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))  # Doesn't need to be reachable
+    return s.getsockname()[0]
+
+
+def get_open_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+
+
 def setup():
     # get IDs of reserved GPU
-    dist.init_process_group(backend="nccl")
+    distributed_init_method = f"tcp://{get_ip()}:{get_open_port()}"
+    dist.init_process_group(backend="nccl", init_method=distributed_init_method, world_size = int(os.environ["WORLD_SIZE"]), rank = int(os.environ["RANK"]))
     # init_method='env://',
     # world_size=int(os.environ["WORLD_SIZE"]),
     # rank=int(os.environ['SLURM_PROCID']))
@@ -60,7 +74,7 @@ def train_model_parallel(
     #                    rank=idr_torch.rank)
     # torch.cuda.set_device(rank)
     ddp_model = DDP(nfm.to(rank), device_ids=[rank])
-
+    ddp_model = torch.compile(ddp_model)
     loss_hist = []
     # writer = SummaryWriter()
 
