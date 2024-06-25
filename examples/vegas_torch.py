@@ -258,7 +258,8 @@ class VegasMap(torch.nn.Module):
             #     self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
             # ) % 1.0
             proposed_y[:] = (
-                self.y + torch.normal(step_size, norm_std, size=vars_shape)
+                self.y
+                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
             ) % 1.0
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
@@ -295,7 +296,8 @@ class VegasMap(torch.nn.Module):
             #     self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
             # ) % 1.0
             proposed_y[:] = (
-                self.y + torch.normal(step_size, norm_std, size=vars_shape)
+                self.y
+                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
             ) % 1.0
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)

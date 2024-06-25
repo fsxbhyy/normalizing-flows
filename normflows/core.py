@@ -543,7 +543,8 @@ class NormalizingFlow(nn.Module):
             proposed_z[:], proposed_log_q[:] = self.q0(batch_size)
             # proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
             proposed_z[:] = (
-                current_z + torch.normal(step_size, norm_std, size=vars_shape)
+                current_z
+                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
             ) % 1.0
             proposed_samples[:] = proposed_z
             for flow in self.flows:
@@ -585,7 +586,8 @@ class NormalizingFlow(nn.Module):
             proposed_z[:], proposed_log_q[:] = self.q0(batch_size)
             # proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
             proposed_z[:] = (
-                current_z + torch.normal(step_size, norm_std, size=vars_shape)
+                current_z
+                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
             ) % 1.0
             proposed_samples[:] = proposed_z
             for flow in self.flows:

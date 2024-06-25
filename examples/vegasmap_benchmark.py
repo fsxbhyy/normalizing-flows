@@ -36,7 +36,7 @@ step_size = 0.2
 norm_std = 0.4
 
 print(
-    f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}, random-walk step size {step_size}"
+    f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}, Gaussian random-walk N({step_size}, {norm_std}^2)"
 )
 
 partition = [(order, 0, 0)]
