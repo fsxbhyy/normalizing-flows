@@ -273,16 +273,16 @@ class NormalizingFlow(nn.Module):
         Returns:
           Samples, log probability
         """
-        # z, log_q = self.q0(num_samples)
-        # for flow in self.flows:
-        #     z, log_det = flow(z)
-        #     log_q -= log_det
-        # return z, log_q
-        self.p.samples[:], self.p.log_q[:] = self.q0(num_samples)
+        z, log_q = self.q0(num_samples)
         for flow in self.flows:
-            self.p.samples[:], log_det = flow(self.p.samples)
-            self.p.log_q -= log_det
-        return self.p.samples, self.p.log_q
+            z, log_det = flow(z)
+            log_q -= log_det
+        return z, log_q
+        # self.p.samples[:], self.p.log_q[:] = self.q0(num_samples)
+        # for flow in self.flows:
+        #     self.p.samples[:], log_det = flow(self.p.samples)
+        #     self.p.log_q -= log_det
+        # return self.p.samples, self.p.log_q
 
     @torch.no_grad()
     def integrate(self):
@@ -494,7 +494,8 @@ class NormalizingFlow(nn.Module):
         burn_in=None,
         thinning=1,
         alpha=1.0,
-        step_size=0.1,
+        step_size=0.2,
+        norm_std=0.2,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -540,7 +541,11 @@ class NormalizingFlow(nn.Module):
         for _ in range(burn_in):
             # Propose new samples using the normalizing flow
             proposed_z[:], proposed_log_q[:] = self.q0(batch_size)
-            proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
+            # proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
+            proposed_z[:] = (
+                current_z
+                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
+            ) % 1.0
             proposed_samples[:] = proposed_z
             for flow in self.flows:
                 proposed_samples[:], proposed_log_det = flow(proposed_samples)
@@ -579,7 +584,11 @@ class NormalizingFlow(nn.Module):
         for i in range(len_chain):
             # Propose new samples using the normalizing flow
             proposed_z[:], proposed_log_q[:] = self.q0(batch_size)
-            proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
+            # proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
+            proposed_z[:] = (
+                current_z
+                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
+            ) % 1.0
             proposed_samples[:] = proposed_z
             for flow in self.flows:
                 proposed_samples[:], proposed_log_det = flow(proposed_samples)

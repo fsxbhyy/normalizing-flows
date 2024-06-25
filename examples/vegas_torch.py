@@ -214,7 +214,8 @@ class VegasMap(torch.nn.Module):
         burn_in=None,
         thinning=1,
         alpha=1.0,
-        step_size=0.1,
+        step_size=0.2,
+        norm_std=0.2,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -253,12 +254,13 @@ class VegasMap(torch.nn.Module):
 
         for _ in range(burn_in):
             # Propose new samples
+            # proposed_y[:] = (
+            #     self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
+            # ) % 1.0
             proposed_y[:] = (
-                self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
+                self.y
+                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
             ) % 1.0
-            # proposed_y[:] = (1 - step_size) * self.y + step_size * torch.rand(
-            #     vars_shape, device=device
-            # )
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(
@@ -290,12 +292,13 @@ class VegasMap(torch.nn.Module):
         num_measure = 0
         for i in range(len_chain):
             # Propose new samples
+            # proposed_y[:] = (
+            #     self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
+            # ) % 1.0
             proposed_y[:] = (
-                self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
+                self.y
+                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
             ) % 1.0
-            # proposed_y[:] = (1 - step_size) * self.y + step_size * torch.rand(
-            #     vars_shape, device=device
-            # )
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
             new_prob[:] = self.target.prob(proposed_samples)
