@@ -32,6 +32,11 @@ niters = 20
 nblocks = 2000
 # nblocks = 3052
 therm_steps = 1000
+step_size = 0.1
+
+print(
+    f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}, random-walk step size {step_size}"
+)
 
 partition = [(order, 0, 0)]
 name = "sigma"
@@ -133,7 +138,7 @@ len_chain = nblocks
 for alpha in [0.0, 0.1, 0.9, 1.0]:
     start_time = time.time()
     mean, error = map_torch.mcmc(
-        len_chain, alpha=alpha, burn_in=therm_steps, step_size=0.1
+        len_chain, alpha=alpha, burn_in=therm_steps, step_size=step_size
     )  # , thinning=20
     print(f"   VEGAS-map MCMC (alpha = {alpha}):", f"{mean:.6f} +- {error:.6f}")
     print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))

@@ -214,8 +214,7 @@ class VegasMap(torch.nn.Module):
         burn_in=None,
         thinning=1,
         alpha=1.0,
-        step_size=0.05,
-        mix_rate=0.1,
+        step_size=0.1,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -232,7 +231,7 @@ class VegasMap(torch.nn.Module):
         Returns:
             mean, error: Mean and standard variance of the integrated samples.
         """
-        # epsilon = 1e-10  # Small value to ensure numerical stability
+        epsilon = 1e-16  # Small value to ensure numerical stability
         device = self.y.device
         vars_shape = self.y.shape
         batch_size = vars_shape[0]
@@ -240,12 +239,8 @@ class VegasMap(torch.nn.Module):
             burn_in = len_chain // 4
 
         # Initialize chains
-        # bool_mask = torch.ones(batch_size, device=device, dtype=torch.bool)
-        bool_mask = torch.rand(batch_size, device=device) < mix_rate
         self.y[:] = torch.rand(vars_shape, device=device)
         current_samples, current_qinv = self.forward(self.y)
-        current_samples[bool_mask, :] = self.y[bool_mask, :]
-        current_qinv[bool_mask] = 1.0
         current_weight = alpha / current_qinv + (1 - alpha) * torch.abs(
             self.target.prob(current_samples)
         )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
@@ -256,31 +251,25 @@ class VegasMap(torch.nn.Module):
         new_weight = torch.empty(batch_size, device=device)
 
         for _ in range(burn_in):
-            bool_mask[:] = torch.rand(batch_size, device=device) < mix_rate
-            # num_rand = bool_mask.sum().item()
-
             # Propose new samples
-            # proposed_y[:] = torch.rand(vars_shape, device=device)
             proposed_y[:] = (
                 self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
             ) % 1.0
+            # proposed_y[:] = (1 - step_size) * self.y + step_size * torch.rand(
+            #     vars_shape, device=device
+            # )
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
-            proposed_samples[bool_mask, :] = proposed_y[bool_mask, :]
-            proposed_qinv[bool_mask] = 1.0
-
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(
                 self.target.prob(proposed_samples)
             )
 
+            current_weight[:] = torch.clamp(current_weight, min=epsilon)
+            new_weight[:] = torch.clamp(new_weight, min=epsilon)
             # Compute acceptance probabilities
-            acceptance_probs = new_weight / current_weight
-            acceptance_probs[~bool_mask] *= (
-                proposed_qinv[~bool_mask] / current_qinv[~bool_mask]
+            acceptance_probs = (
+                new_weight / current_weight * proposed_qinv / current_qinv
             )
-            # acceptance_probs = (
-            #     new_weight / current_weight * proposed_qinv / current_qinv
-            # )
 
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
@@ -301,30 +290,27 @@ class VegasMap(torch.nn.Module):
         var_q = torch.zeros_like(values)
         num_measure = 0
         for i in range(len_chain):
-            bool_mask[:] = torch.rand(batch_size, device=device) < mix_rate
-            # num_rand = bool_mask.sum().item()
-
             # Propose new samples
-            # proposed_y[:] = torch.rand(vars_shape, device=device)
             proposed_y[:] = (
                 self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
             ) % 1.0
+            # proposed_y[:] = (1 - step_size) * self.y + step_size * torch.rand(
+            #     vars_shape, device=device
+            # )
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
-            proposed_samples[bool_mask, :] = proposed_y[bool_mask, :]
-            proposed_qinv[bool_mask] = 1.0
-
             new_prob[:] = self.target.prob(proposed_samples)
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(new_prob)
 
+            current_weight[:] = torch.clamp(current_weight, min=epsilon)
+            new_weight[:] = torch.clamp(new_weight, min=epsilon)
             # Compute acceptance probabilities
-            acceptance_probs = new_weight / current_weight
-            acceptance_probs[~bool_mask] *= (
-                proposed_qinv[~bool_mask] / current_qinv[~bool_mask]
+            acceptance_probs = (
+                new_weight / current_weight * proposed_qinv / current_qinv
             )
-            # acceptance_probs = (
-            #     new_weight / current_weight * proposed_qinv / current_qinv
-            # )
+            if torch.isnan(acceptance_probs).any():
+                print("nan in acceptance_probs")
+                print(acceptance_probs)
 
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
