@@ -205,7 +205,7 @@ def train_model(
 
         # save checkpoint
         # if it % 100 == 0 and it > 0 and save_checkpoint:
-        if it % 10 == 0 and save_checkpoint:
+        if it % 50 == 0 and save_checkpoint:
             torch.save(
                 {
                     "model_state_dict": nfm.module.state_dict()

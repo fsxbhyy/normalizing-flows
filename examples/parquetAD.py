@@ -30,8 +30,8 @@ root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
 num_roots = [1, 2, 3, 4, 5, 6]
 traced_batchsize = [1000, 10000, 20000, 50000, 100000]
-order = 2
-beta = 16.0
+order = 1
+beta = 1.0
 batch_size = 10000
 num_blocks = 1
 num_hidden_channels = 32
@@ -39,15 +39,15 @@ num_bins = 8
 accum_iter = 1
 
 init_lr = 8e-3
-Nepochs = 310
+Nepochs = 100
 Nblocks = 400
 
 # is_save = True
 is_save = False
 # is_annealing = True
 is_annealing = False
-has_init_model = True
-# has_init_model = False
+# has_init_model = True
+has_init_model = False
 # has_proposal_nfm = True
 has_proposal_nfm = False
 multi_gpu = False
@@ -441,9 +441,7 @@ def retrain(argv):
     print("Final loss: ", loss, "\n")
 
     start_time = time.time()
-    mean_mcmc, err_mcmc = nfm.mcmc_integration(
-        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.0
-    )
+    mean_mcmc, err_mcmc = nfm.mcmc_integration(len_chain=blocks, thinning=1, alpha=0.1)
     print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
@@ -637,9 +635,7 @@ def main(argv):
     print("Final loss: ", loss, "\n")
 
     start_time = time.time()
-    mean_mcmc, err_mcmc = nfm.mcmc_integration(
-        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.0
-    )
+    mean_mcmc, err_mcmc = nfm.mcmc_integration(len_chain=blocks, thinning=1, alpha=0.1)
     print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(

@@ -52,7 +52,8 @@ def generate_model(
     # print(masks)
 
     flows = []
-    b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+    # b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
+    b = torch.Tensor([1] * (latent_size // 2) + [0] * (latent_size - latent_size // 2))
     for i in range(num_layers):
         s = nf.nets.MLP([latent_size, 4 * latent_size, latent_size], init_zeros=True)
         t = nf.nets.MLP([latent_size, 4 * latent_size, latent_size], init_zeros=True)

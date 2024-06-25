@@ -244,6 +244,7 @@ class VegasMap(torch.nn.Module):
         current_weight = alpha / current_qinv + (1 - alpha) * torch.abs(
             self.target.prob(current_samples)
         )  # Pi(x) = alpha * q(x) + (1 - alpha) * p(x)
+        torch.clamp(current_weight, min=epsilon, out=current_weight)
 
         proposed_y = torch.empty(vars_shape, device=device)
         proposed_samples = torch.empty(vars_shape, device=device)
@@ -263,9 +264,7 @@ class VegasMap(torch.nn.Module):
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(
                 self.target.prob(proposed_samples)
             )
-
-            current_weight[:] = torch.clamp(current_weight, min=epsilon)
-            new_weight[:] = torch.clamp(new_weight, min=epsilon)
+            torch.clamp(new_weight, min=epsilon, out=new_weight)
             # Compute acceptance probabilities
             acceptance_probs = (
                 new_weight / current_weight * proposed_qinv / current_qinv
@@ -301,9 +300,7 @@ class VegasMap(torch.nn.Module):
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
             new_prob[:] = self.target.prob(proposed_samples)
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(new_prob)
-
-            current_weight[:] = torch.clamp(current_weight, min=epsilon)
-            new_weight[:] = torch.clamp(new_weight, min=epsilon)
+            torch.clamp(new_weight, min=epsilon, out=new_weight)
             # Compute acceptance probabilities
             acceptance_probs = (
                 new_weight / current_weight * proposed_qinv / current_qinv

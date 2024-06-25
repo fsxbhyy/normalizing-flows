@@ -26,11 +26,11 @@ order = 1
 beta = 1.0
 batch_size = 10000
 num_layers = 4
-accum_iter = 10
+accum_iter = 1
 
-init_lr = 8e-3
+init_lr = 1e-3
 Nepochs = 100
-Nblocks = 100
+Nblocks = 400
 
 is_save = True
 is_annealing = False
@@ -474,9 +474,7 @@ def main(argv):
     )
 
     start_time = time.time()
-    mean_mcmc, err_mcmc = rnvp.mcmc_integration(
-        num_blocks=blocks, len_chain=blocks, thinning=1, alpha=0.1
-    )
+    mean_mcmc, err_mcmc = rnvp.mcmc_integration(len_chain=blocks, thinning=1, alpha=0.1)
     print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(

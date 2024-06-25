@@ -2,6 +2,7 @@ import torch
 from torch.nn import functional as F
 
 import numpy as np
+import os
 
 DEFAULT_MIN_BIN_WIDTH = 1e-3
 DEFAULT_MIN_BIN_HEIGHT = 1e-3
@@ -221,14 +222,17 @@ def rational_quadratic_spline(
     cumheights[..., -1] = top
     heights = cumheights[..., 1:] - cumheights[..., :-1]
 
+    # Constrain inputs to be within [left, right] for forward and [bottom, top] for inverse
     if inverse:
+        torch.clamp(inputs, bottom, top, out=inputs)
         bin_idx = searchsorted(cumheights, inputs)[..., None]
     else:
+        torch.clamp(inputs, left, right, out=inputs)
         bin_idx = searchsorted(cumwidths, inputs)[..., None]
 
-    torch.clamp(
-        bin_idx, 0, num_bins - 1, out=bin_idx
-    )  # Ensure bin_idx is within valid range
+    # torch.clamp(
+    #     bin_idx, 0, num_bins - 1, out=bin_idx
+    # )  # Ensure bin_idx is within valid range
     input_cumwidths = cumwidths.gather(-1, bin_idx)[..., 0]
     input_bin_widths = widths.gather(-1, bin_idx)[..., 0]
 
@@ -251,7 +255,21 @@ def rational_quadratic_spline(
         c = -input_delta * (inputs - input_cumheights)
 
         discriminant = b.pow(2) - 4 * a * c
-        assert (discriminant >= 0).all()
+        # assert (discriminant >= 0).all()
+        try:
+            assert (discriminant >= 0).all(), "Discriminant must be non-negative"
+        except AssertionError as e:
+            print("AssertionError occurred:", e)
+            save_path = os.getcwd()
+            inputs_path = os.path.join(save_path, "inputs.pt")
+            heights_path = os.path.join(save_path, "cumheights.pt")
+            widths_path = os.path.join(save_path, "cumwidths.pt")
+            derivatives_path = os.path.join(save_path, "derivatives.pt")
+            torch.save(inputs, inputs_path)
+            torch.save(cumheights, heights_path)
+            torch.save(cumwidths, widths_path)
+            torch.save(derivatives, derivatives_path)
+            exit(-1)
 
         root = (2 * c) / (-b - torch.sqrt(discriminant))
         outputs = root * input_bin_widths + input_cumwidths
