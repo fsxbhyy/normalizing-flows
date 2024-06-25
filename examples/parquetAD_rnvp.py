@@ -25,10 +25,10 @@ traced_batchsize = [1000, 10000, 20000, 50000, 100000]
 order = 1
 beta = 1.0
 batch_size = 10000
-num_layers = 4
+num_layers = 8
 accum_iter = 1
 
-init_lr = 1e-3
+init_lr = 4e-3
 Nepochs = 100
 Nblocks = 400
 
@@ -360,18 +360,18 @@ def main(argv):
 
     # torch.cuda.memory._record_memory_history()
     # tracemalloc.start()
-    start_time = time.time()
-    with torch.no_grad():
-        mean, err, partition_z = rnvp.integrate_block(blocks)
-    print("Initial integration time: {:.3f}s".format(time.time() - start_time))
-    loss = rnvp.loss_block(20, partition_z)
-    print("Initial loss: ", loss)
+    # start_time = time.time()
+    # with torch.no_grad():
+    #     mean, err, partition_z = rnvp.integrate_block(blocks)
+    # print("Initial integration time: {:.3f}s".format(time.time() - start_time))
+    # loss = rnvp.loss_block(20, partition_z)
+    # print("Initial loss: ", loss)
 
-    print(
-        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * diagram.batchsize, mean, err, rnvp.p.targetval
-        )
-    )
+    # print(
+    #     "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
+    #         blocks * diagram.batchsize, mean, err, rnvp.p.targetval
+    #     )
+    # )
     # snapshot = tracemalloc.take_snapshot()
     # top_stats = snapshot.statistics("lineno")
     # print("[ Top 20 ]")

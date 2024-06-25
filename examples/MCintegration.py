@@ -19,11 +19,12 @@ batch_size = 2000
 # Nblocks = batch_size
 Nblocks = 400
 len_chain = 2000
-therm_steps = len_chain // 3
+therm_steps = len_chain // 2
 step_size = 0.2
+norm_std = 0.4
 
 print(
-    f"batchsize {batch_size}, nblocks {Nblocks}, therm_steps {therm_steps}, random-walk step size {step_size}"
+    f"batchsize {batch_size}, nblocks {Nblocks}, therm_steps {therm_steps}, Gaussian random-walk N({step_size}, {norm_std}^2)"
 )
 
 num_hidden_layers = 1
@@ -84,18 +85,18 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     print("Loading model takes {:.3f}s \n".format(time.time() - start_time))
 
     print("Start computing integration...")
-    # start_time = time.time()
-    # num_hist_bins = 25
-    # with torch.no_grad():
-    #     mean, err, partition_z = nfm.integrate_block(len_chain, num_hist_bins)
-    # print("Final integration time: {:.3f}s".format(time.time() - start_time))
-    # print(
-    #     "Result with {:d} is {:.5e} +/- {:.5e}. \n".format(
-    #         len_chain * batch_size, mean, err
-    #     )
-    # )
-    # loss = nfm.loss_block(100, partition_z)
-    # print("Loss = ", loss, "\n")
+    start_time = time.time()
+    num_hist_bins = 25
+    with torch.no_grad():
+        mean, err, partition_z = nfm.integrate_block(len_chain, num_hist_bins)
+    print("Final integration time: {:.3f}s".format(time.time() - start_time))
+    print(
+        "Result with {:d} is {:.5e} +/- {:.5e}. \n".format(
+            len_chain * batch_size, mean, err
+        )
+    )
+    loss = nfm.loss_block(100, partition_z)
+    print("Loss = ", loss, "\n")
 
     for alpha in [0.0, 0.1, 0.9, 1.0]:
         start_time = time.time()
@@ -106,6 +107,7 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
             alpha=alpha,
             burn_in=therm_steps,
             step_size=step_size,
+            norm_std=norm_std,
         )
         print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
         print("alpha = ", alpha)

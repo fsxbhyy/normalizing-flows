@@ -32,7 +32,8 @@ niters = 20
 nblocks = 2000
 # nblocks = 3052
 therm_steps = 1000
-step_size = 0.1
+step_size = 0.2
+norm_std = 0.4
 
 print(
     f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}, random-walk step size {step_size}"
@@ -124,36 +125,40 @@ def g(y):
     return jac * integrand_eval(x)
 
 
-# # Importance sampling with Vegas map (torch)
-# map_torch = map_torch.to(device)
-# start_time = time.time()
-# mean, std = map_torch.integrate_block(nblocks)
-# print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
-# end_time = time.time()
-# wall_clock_time = end_time - start_time
-# print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
+# Importance sampling with Vegas map (torch)
+map_torch = map_torch.to(device)
+start_time = time.time()
+mean, std = map_torch.integrate_block(nblocks)
+print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
+end_time = time.time()
+wall_clock_time = end_time - start_time
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
 
 # Vegas-map MCMC
 len_chain = nblocks
 for alpha in [0.0, 0.1, 0.9, 1.0]:
     start_time = time.time()
     mean, error = map_torch.mcmc(
-        len_chain, alpha=alpha, burn_in=therm_steps, step_size=step_size
+        len_chain,
+        alpha=alpha,
+        burn_in=therm_steps,
+        step_size=step_size,
+        norm_std=norm_std,
     )  # , thinning=20
     print(f"   VEGAS-map MCMC (alpha = {alpha}):", f"{mean:.6f} +- {error:.6f}")
     print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))
 
-# without map
-start_time = time.time()
-data = []
-for i in range(nblocks):
-    data.append(smc(integrand_eval, batchsize, dim)[0])
-data = np.array(data)
-r = (np.average(data), np.std(data) / nblocks**0.5)
-print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
-end_time = time.time()
-wall_clock_time = end_time - start_time
-print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
+# # without map
+# start_time = time.time()
+# data = []
+# for i in range(nblocks):
+#     data.append(smc(integrand_eval, batchsize, dim)[0])
+# data = np.array(data)
+# r = (np.average(data), np.std(data) / nblocks**0.5)
+# print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
+# end_time = time.time()
+# wall_clock_time = end_time - start_time
+# print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
 
 # # with Veags map
 # start_time = time.time()
