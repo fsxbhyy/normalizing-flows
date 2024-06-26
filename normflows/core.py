@@ -494,7 +494,7 @@ class NormalizingFlow(nn.Module):
         burn_in=None,
         thinning=1,
         alpha=1.0,
-        step_size=0.2,
+        step_size=0.0,
         norm_std=0.2,
     ):
         """
@@ -538,7 +538,7 @@ class NormalizingFlow(nn.Module):
         acceptance_probs = torch.empty(batch_size, device=device)
         accept = torch.empty(batch_size, device=device, dtype=torch.bool)
 
-        for _ in range(burn_in):
+        for i in range(burn_in):
             # Propose new samples using the normalizing flow
             proposed_z[:], proposed_log_q[:] = self.q0(batch_size)
             # proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
@@ -569,6 +569,13 @@ class NormalizingFlow(nn.Module):
             current_weight = torch.where(accept, new_weight, current_weight)
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
             # self.p.log_q[accept] = proposed_log_q[accept]
+
+            # if i % 100 == 0 and i > 0:
+            #     accept_rate = accept.sum().item() / batch_size
+            #     if accept_rate < 0.4:
+            #         step_size *= 0.9
+            #     else:
+            #         step_size *= 1.1
 
         self.p.val = self.p.prob(self.p.samples)
         new_prob = torch.empty_like(self.p.val)
@@ -759,6 +766,11 @@ class NormalizingFlow(nn.Module):
                 var_pq_mean.item(), var_pq_err.item()
             ),
             var_pq.mean(),
+        )
+        print(
+            "theoretical estimated error : {:.5e}".format(
+                (var_pq_mean / num_measure).item() ** 0.5
+            )
         )
 
         return ratio_mean, ratio_err

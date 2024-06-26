@@ -215,7 +215,8 @@ class VegasMap(torch.nn.Module):
         thinning=1,
         alpha=1.0,
         step_size=0.2,
-        norm_std=0.2,
+        mu=0.0,
+        type="gaussian",
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -252,15 +253,18 @@ class VegasMap(torch.nn.Module):
         proposed_qinv = torch.empty(batch_size, device=device)
         new_weight = torch.empty(batch_size, device=device)
 
-        for _ in range(burn_in):
+        for i in range(burn_in):
             # Propose new samples
-            # proposed_y[:] = (
-            #     self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
-            # ) % 1.0
-            proposed_y[:] = (
-                self.y
-                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
-            ) % 1.0
+            if type == "gaussian":
+                proposed_y[:] = (
+                    self.y + torch.normal(mu, step_size, size=vars_shape, device=device)
+                ) % 1.0
+            elif type == "uniform":
+                proposed_y[:] = (
+                    self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
+                ) % 1.0
+            else:
+                proposed_y[:] = torch.rand(vars_shape, device=device)
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(
@@ -282,6 +286,14 @@ class VegasMap(torch.nn.Module):
             current_qinv = torch.where(accept, proposed_qinv, current_qinv)
             # self.p.log_q[accept] = proposed_log_q[accept]
 
+            # if i % 50 == 0 and i > 0:
+            #     accept_rate = accept.sum().item() / batch_size
+            #     if accept_rate < 0.4:
+            #         step_size *= 0.9
+            #     else:
+            #         step_size *= 1.1
+        print("Adjusted step size: ", step_size)
+
         current_prob = self.target.prob(current_samples)
         new_prob = torch.empty_like(current_prob)
         values = torch.zeros(batch_size, device=device)
@@ -289,16 +301,20 @@ class VegasMap(torch.nn.Module):
         abs_values = torch.zeros_like(values)
         var_p = torch.zeros_like(values)
         var_q = torch.zeros_like(values)
+        cov_pq = torch.zeros_like(values)
         num_measure = 0
         for i in range(len_chain):
             # Propose new samples
-            # proposed_y[:] = (
-            #     self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
-            # ) % 1.0
-            proposed_y[:] = (
-                self.y
-                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
-            ) % 1.0
+            if type == "gaussian":
+                proposed_y[:] = (
+                    self.y + torch.normal(mu, step_size, size=vars_shape, device=device)
+                ) % 1.0
+            elif type == "uniform":
+                proposed_y[:] = (
+                    self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
+                ) % 1.0
+            else:
+                proposed_y[:] = torch.rand(vars_shape, device=device)
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
             new_prob[:] = self.target.prob(proposed_samples)
@@ -308,9 +324,6 @@ class VegasMap(torch.nn.Module):
             acceptance_probs = (
                 new_weight / current_weight * proposed_qinv / current_qinv
             )
-            if torch.isnan(acceptance_probs).any():
-                print("nan in acceptance_probs")
-                print(acceptance_probs)
 
             # Accept or reject the proposals
             accept = torch.rand(batch_size, device=device) <= acceptance_probs
@@ -332,12 +345,13 @@ class VegasMap(torch.nn.Module):
 
                 var_p += (current_prob / current_weight) ** 2
                 var_q += 1 / (current_qinv * current_weight) ** 2
-
+                cov_pq += current_prob / current_qinv / current_weight**2
         values /= num_measure
         abs_values /= num_measure
         ref_values /= num_measure
         var_p /= num_measure
         var_q /= num_measure
+        cov_pq /= num_measure
 
         while (
             kstest(
@@ -360,6 +374,7 @@ class VegasMap(torch.nn.Module):
             ref_values = (ref_values[even_idx] + ref_values[odd_idx]) / 2.0
             var_p = (var_p[even_idx] + var_p[odd_idx]) / 2.0
             var_q = (var_q[even_idx] + var_q[odd_idx]) / 2.0
+            cov_pq = (cov_pq[even_idx] + cov_pq[odd_idx]) / 2.0
         print("new batch size: ", batch_size)
 
         statistic, p_value = kstest(
@@ -374,13 +389,15 @@ class VegasMap(torch.nn.Module):
         )
         print(f"K-S test of ref_values: statistic {statistic}, p-value {p_value}")
 
-        mean = torch.mean(values) / torch.mean(ref_values)
+        ratio_mean = torch.mean(values) / torch.mean(ref_values)
         abs_val_mean = torch.mean(abs_values) / torch.mean(ref_values)
 
         cov_matrix = torch.cov(torch.stack((values, ref_values)))
         print("covariance matrix: ", cov_matrix)
         ratio_var = (
-            cov_matrix[0, 0] - 2 * mean * cov_matrix[0, 1] + mean**2 * cov_matrix[1, 1]
+            cov_matrix[0, 0]
+            - 2 * ratio_mean * cov_matrix[0, 1]
+            + ratio_mean**2 * cov_matrix[1, 1]
         ) / torch.mean(ref_values) ** 2
         ratio_err = (ratio_var / batch_size) ** 0.5
 
@@ -411,6 +428,7 @@ class VegasMap(torch.nn.Module):
 
         err_var_p = torch.std(var_p) / batch_size**0.5
         err_var_q = torch.std(var_q) / batch_size**0.5
+        err_cov_pq = torch.std(cov_pq) / batch_size**0.5
         print(
             "variance of p: {:.5e} +/- {:.5e}".format(
                 var_p.mean().item(), err_var_p.item()
@@ -421,8 +439,35 @@ class VegasMap(torch.nn.Module):
                 var_q.mean().item(), err_var_q.item()
             )
         )
+        print(
+            "covariance of pq: {:.5e} +/- {:.5e}".format(
+                cov_pq.mean().item(), err_cov_pq.item()
+            )
+        )
 
-        return mean, ratio_err
+        I_alpha = alpha + (1 - alpha) * abs_val_mean.item()
+        print("I_alpha: ", I_alpha)
+
+        var_pq_mean = I_alpha**2 * (
+            var_p.mean() + var_q.mean() * ratio_mean**2 - 2 * ratio_mean * cov_pq.mean()
+        )
+        var_pq = (alpha + (1 - alpha) * abs_values) ** 2 * (
+            var_p + var_q * values**2 - 2 * values * cov_pq
+        )
+        var_pq_err = torch.std(var_pq) / batch_size**0.5
+        print(
+            "Composite variance: {:.5e} +/- {:.5e}  ".format(
+                var_pq_mean.item(), var_pq_err.item()
+            ),
+            var_pq.mean(),
+        )
+        print(
+            "theoretical estimated error : {:.5e}".format(
+                (var_pq_mean / num_measure).item() ** 0.5
+            )
+        )
+
+        return ratio_mean, ratio_err
 
 
 # Function to calculate correlation between adjacent blocks
