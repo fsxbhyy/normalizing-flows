@@ -669,19 +669,19 @@ def main(argv):
     # num_hist_bins = 25
     # if multi_gpu:
     #     nfm = torch.load("checkpoint.pt")
-
-    # if is_save:
-    #     # nfm.save(
-    #     #     "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
-    #     #         order, beta, num_blocks, num_hidden_channels, num_bins
-    #     #     )
-    #     # )
-    #     torch.save(
-    #         nfm.state_dict(),
-    #         "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state_test.pt".format(
-    #             order, beta, num_blocks, num_hidden_channels, num_bins
-    #         ),
-    #     )
+    global_rank = int(os.environ["RANK"])
+    if is_save and global_rank==0:
+        # nfm.save(
+        #     "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
+        #         order, beta, num_blocks, num_hidden_channels, num_bins
+        #     )
+        # )
+        torch.save(
+            nfm.state_dict(),
+            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state_test.pt".format(
+                order, beta, num_blocks, num_hidden_channels, num_bins
+            ),
+        )
 
     # with torch.no_grad():
     #     mean, err, partition_z = nfm.integrate_block(blocks, num_hist_bins)
