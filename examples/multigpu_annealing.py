@@ -207,7 +207,7 @@ def train_model_parallel(
     cleanup()
 
 
-def train_model_annealing(
+def train_model_parallel_annealing(
     nfm_input,
     max_iter=1000,
     num_samples=10000,
