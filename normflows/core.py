@@ -34,7 +34,7 @@ class NormalizingFlow(nn.Module):
         self.flows = nn.ModuleList(flows)
         self.p = p
 
-    def forward(self, z):
+    def forward(self, z, rev=False):
         """Transforms latent variable z to the flow variable x
 
         Args:
@@ -43,9 +43,17 @@ class NormalizingFlow(nn.Module):
         Returns:
           Batch in the space of the target distribution
         """
-        for flow in self.flows:
-            z, _ = flow(z)
-        return z
+        if rev:
+            log_q = torch.zeros(len(x), device=x.device)
+            z = x
+            for i in range(len(self.flows) - 1, -1, -1):
+                z, log_det = self.flows[i].inverse(z)
+                log_q += log_det
+            return z, log_q
+        else:
+            for flow in self.flows:
+                z, _ = flow(z)
+            return z
 
     def forward_and_log_det(self, z):
         """Transforms latent variable z to the flow variable x and

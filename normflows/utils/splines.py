@@ -224,10 +224,10 @@ def rational_quadratic_spline(
 
     # Constrain inputs to be within [left, right] for forward and [bottom, top] for inverse
     if inverse:
-        torch.clamp(inputs, bottom, top, out=inputs)
+        inputs = torch.clamp(inputs, bottom, top)
         bin_idx = searchsorted(cumheights, inputs)[..., None]
     else:
-        torch.clamp(inputs, left, right, out=inputs)
+        inputs = torch.clamp(inputs, left, right)
         bin_idx = searchsorted(cumwidths, inputs)[..., None]
 
     # torch.clamp(
