@@ -26,16 +26,17 @@ solution = 0.2773  # order 2
 integration_domain = [[0, 1]] * dim
 
 num_adapt_samples = 1000000
-batchsize = 4096
-# batchsize = 32768 // 4
+# batchsize = 4096
+batchsize = 32768 // 4
 niters = 20
-nblocks = 2000
-# nblocks = 3052 * 4
+# nblocks = 2000
+nblocks = 3052 * 4
 therm_steps = 3000
 mu = 0.0
-step_size = 0.009
+step_size = 0.044
 type = "gaussian"  # "gaussian" or "uniform"
 # type = "uniform"  # "gaussian" or "uniform"
+mix_rate = 0.1
 
 print(f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}")
 if type == "gaussian":
@@ -142,7 +143,7 @@ def g(y):
 
 # Vegas-map MCMC
 len_chain = nblocks
-for alpha in [0.0, 0.1, 0.9, 1.0]:
+for alpha in [0.0, 0.1, 0.189, 0.9, 1.0]:
     start_time = time.time()
     mean, error = map_torch.mcmc(
         len_chain,
@@ -151,6 +152,7 @@ for alpha in [0.0, 0.1, 0.9, 1.0]:
         step_size=step_size,
         mu=mu,
         type=type,
+        mix_rate=mix_rate,
     )  # , thinning=20
     print(f"   VEGAS-map MCMC (alpha = {alpha}):", f"{mean:.6f} +- {error:.6f}")
     print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))

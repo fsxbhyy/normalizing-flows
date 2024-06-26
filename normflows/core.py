@@ -504,6 +504,7 @@ class NormalizingFlow(nn.Module):
         alpha=1.0,
         step_size=0.0,
         norm_std=0.2,
+        mix_rate=0.1,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -546,14 +547,18 @@ class NormalizingFlow(nn.Module):
         acceptance_probs = torch.empty(batch_size, device=device)
         accept = torch.empty(batch_size, device=device, dtype=torch.bool)
 
+        bool_mask = torch.zeros(batch_size, device=device, dtype=torch.bool)
         for i in range(burn_in):
             # Propose new samples using the normalizing flow
+            bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
             proposed_z[:], proposed_log_q[:] = self.q0(batch_size)
-            # proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
-            proposed_z[:] = (
-                current_z
-                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
+            proposed_z[bool_mask, :] = (
+                current_z[bool_mask, :] + (proposed_z[bool_mask, :] - 0.5) * step_size
             ) % 1.0
+            # proposed_z[bool_mask, :] = (
+            #     current_z
+            #     + torch.normal(step_size, norm_std, size=vars_shape, device=device)
+            # ) % 1.0
             proposed_samples[:] = proposed_z
             for flow in self.flows:
                 proposed_samples[:], proposed_log_det = flow(proposed_samples)
@@ -598,12 +603,15 @@ class NormalizingFlow(nn.Module):
         num_measure = 0
         for i in range(len_chain):
             # Propose new samples using the normalizing flow
+            bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
             proposed_z[:], proposed_log_q[:] = self.q0(batch_size)
-            # proposed_z[:] = (current_z + (proposed_z - 0.5) * step_size) % 1.0
-            proposed_z[:] = (
-                current_z
-                + torch.normal(step_size, norm_std, size=vars_shape, device=device)
+            proposed_z[bool_mask, :] = (
+                current_z[bool_mask, :] + (proposed_z[bool_mask, :] - 0.5) * step_size
             ) % 1.0
+            # proposed_z[bool_mask, :] = (
+            #     current_z[bool_mask, :]
+            #     + torch.normal(step_size, norm_std, size=vars_shape, device=device)
+            # ) % 1.0
             proposed_samples[:] = proposed_z
             for flow in self.flows:
                 proposed_samples[:], proposed_log_det = flow(proposed_samples)

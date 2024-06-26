@@ -217,6 +217,7 @@ class VegasMap(torch.nn.Module):
         step_size=0.2,
         mu=0.0,
         type="gaussian",
+        mix_rate=0.1,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -237,6 +238,7 @@ class VegasMap(torch.nn.Module):
         device = self.y.device
         vars_shape = self.y.shape
         batch_size = vars_shape[0]
+        num_vars = vars_shape[1]
         if burn_in is None:
             burn_in = len_chain // 4
 
@@ -253,20 +255,39 @@ class VegasMap(torch.nn.Module):
         proposed_qinv = torch.empty(batch_size, device=device)
         new_weight = torch.empty(batch_size, device=device)
 
+        bool_mask = torch.zeros(batch_size, device=device, dtype=torch.bool)
         for i in range(burn_in):
             # Propose new samples
             if type == "gaussian":
-                proposed_y[:] = (
-                    self.y + torch.normal(mu, step_size, size=vars_shape, device=device)
+                bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
+                proposed_y[bool_mask, :] = (
+                    self.y[bool_mask, :]
+                    + torch.normal(
+                        mu,
+                        step_size,
+                        size=[bool_mask.sum().item(), num_vars],
+                        device=device,
+                    )
                 ) % 1.0
             elif type == "uniform":
-                proposed_y[:] = (
-                    self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
+                bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
+                proposed_y[bool_mask, :] = (
+                    self.y[bool_mask, :]
+                    + (
+                        torch.rand(bool_mask.sum().item(), num_vars, device=device)
+                        - 0.5
+                    )
+                    * step_size
                 ) % 1.0
             else:
                 proposed_y[:] = torch.rand(vars_shape, device=device)
 
-            proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
+            try:
+                proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
+            except Exception:
+                print("Error in forward pass")
+                print(proposed_y)
+                exit(-1)
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(
                 self.target.prob(proposed_samples)
             )
@@ -306,12 +327,25 @@ class VegasMap(torch.nn.Module):
         for i in range(len_chain):
             # Propose new samples
             if type == "gaussian":
-                proposed_y[:] = (
-                    self.y + torch.normal(mu, step_size, size=vars_shape, device=device)
+                bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
+                proposed_y[bool_mask, :] = (
+                    self.y[bool_mask, :]
+                    + torch.normal(
+                        mu,
+                        step_size,
+                        size=[bool_mask.sum().item(), num_vars],
+                        device=device,
+                    )
                 ) % 1.0
             elif type == "uniform":
-                proposed_y[:] = (
-                    self.y + (torch.rand(vars_shape, device=device) - 0.5) * step_size
+                bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
+                proposed_y[bool_mask, :] = (
+                    self.y[bool_mask, :]
+                    + (
+                        torch.rand(bool_mask.sum().item(), num_vars, device=device)
+                        - 0.5
+                    )
+                    * step_size
                 ) % 1.0
             else:
                 proposed_y[:] = torch.rand(vars_shape, device=device)
