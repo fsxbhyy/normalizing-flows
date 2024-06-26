@@ -44,8 +44,7 @@ class NormalizingFlow(nn.Module):
           Batch in the space of the target distribution
         """
         if rev:
-            log_q = torch.zeros(len(x), device=x.device)
-            z = x
+            log_q = torch.zeros(len(z), device=z.device)
             for i in range(len(self.flows) - 1, -1, -1):
                 z, log_det = self.flows[i].inverse(z)
                 log_q += log_det
