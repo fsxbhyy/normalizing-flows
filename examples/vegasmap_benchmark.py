@@ -27,17 +27,23 @@ integration_domain = [[0, 1]] * dim
 
 num_adapt_samples = 1000000
 batchsize = 4096
-# batchsize = 32768
+# batchsize = 32768 // 4
 niters = 20
 nblocks = 2000
-# nblocks = 3052
-therm_steps = 1000
-step_size = 0.2
-norm_std = 0.4
+# nblocks = 3052 * 4
+therm_steps = 3000
+mu = 0.0
+step_size = 0.009
+type = "gaussian"  # "gaussian" or "uniform"
+# type = "uniform"  # "gaussian" or "uniform"
 
-print(
-    f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}, Gaussian random-walk N({step_size}, {norm_std}^2)"
-)
+print(f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}")
+if type == "gaussian":
+    print(f"Gaussian random-walk N({mu}, {step_size}^2)")
+elif type == "uniform":
+    print(f"Uniform random-walk U(-{step_size}, {step_size})")
+else:
+    print("Global random sampling")
 
 partition = [(order, 0, 0)]
 name = "sigma"
@@ -125,14 +131,14 @@ def g(y):
     return jac * integrand_eval(x)
 
 
-# Importance sampling with Vegas map (torch)
-map_torch = map_torch.to(device)
-start_time = time.time()
-mean, std = map_torch.integrate_block(nblocks)
-print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
-end_time = time.time()
-wall_clock_time = end_time - start_time
-print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
+# # Importance sampling with Vegas map (torch)
+# map_torch = map_torch.to(device)
+# start_time = time.time()
+# mean, std = map_torch.integrate_block(nblocks)
+# print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
+# end_time = time.time()
+# wall_clock_time = end_time - start_time
+# print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
 
 # Vegas-map MCMC
 len_chain = nblocks
@@ -143,7 +149,8 @@ for alpha in [0.0, 0.1, 0.9, 1.0]:
         alpha=alpha,
         burn_in=therm_steps,
         step_size=step_size,
-        norm_std=norm_std,
+        mu=mu,
+        type=type,
     )  # , thinning=20
     print(f"   VEGAS-map MCMC (alpha = {alpha}):", f"{mean:.6f} +- {error:.6f}")
     print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))
