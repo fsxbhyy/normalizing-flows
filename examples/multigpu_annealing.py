@@ -10,7 +10,7 @@ import os
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-
+from nsf_annealing import chemical_potential
 # from torch.utils.tensorboard import SummaryWriter
 
 from matplotlib import pyplot as plt
@@ -279,9 +279,15 @@ def train_model_annealing(
                 # Compute loss
                 if proposal_model is not None and current_beta == final_beta:
                     x = proposal_model.mcmc_sample(sample_interval)
-                    loss = nfm.forward_kld(x)
+                    z, log_q = nfm.forward(x, rev=True)
+                    log_q += nfm_input.q0.log_prob(z)
+                    loss = -torch.mean(log_q) 
+                    #loss = nfm.forward_kld(x)
                 else:
-                    loss = nfm.IS_forward_kld(num_samples)
+                    z, _ = nfm_input.q0(num_samples)
+                    z = nfm.forward(z.to(rank))
+                    loss = nfm_input.IS_forward_kld_direct(z.detach())
+                    #loss = nfm.IS_forward_kld(num_samples)
 
                 loss = loss / accum_iter
                 loss_accum += loss
@@ -291,9 +297,15 @@ def train_model_annealing(
 
         if proposal_model is not None and current_beta == final_beta:
             x = proposal_model.mcmc_sample(sample_interval)
-            loss = nfm.forward_kld(x)
+            z, log_q = nfm.forward(x, rev=True)
+            log_q += nfm_input.q0.log_prob(z)
+            loss = -torch.mean(log_q) 
+            #loss = nfm.forward_kld(x)
         else:
-            loss = nfm.IS_forward_kld(num_samples)
+            z, _ = nfm_input.q0(num_samples)
+            z = nfm.forward(z.to(rank))
+            loss = nfm_input.IS_forward_kld_direct(z.detach())
+            #loss = nfm.IS_forward_kld(num_samples)
 
         loss = loss / accum_iter
         loss_accum += loss
