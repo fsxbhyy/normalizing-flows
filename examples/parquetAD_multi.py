@@ -6,7 +6,6 @@ import re
 import normflows as nf
 import mpmath
 from mpmath import polylog, gamma, findroot
-
 # from nsf_integrator import generate_model, train_model
 from nsf_annealing import (
     generate_model,
@@ -14,8 +13,9 @@ from nsf_annealing import (
     train_model_annealing,
     retrain_model,
 )
+from multigpu_annealing import *
 from functools import partial
-from nsf_multigpu import *
+#from nsf_multigpu import *
 from funcs_sigma import *
 import time
 
@@ -36,7 +36,7 @@ batch_size = 10000
 num_blocks = 1
 num_hidden_channels = 32
 num_bins = 8
-accum_iter = 1
+accum_iter = 2
 
 init_lr = 8e-3
 Nepochs = 100
@@ -50,7 +50,7 @@ is_annealing = False
 has_init_model = False
 # has_proposal_nfm = True
 has_proposal_nfm = False
-multi_gpu = False
+multi_gpu = True
 
 if batch_size in traced_batchsize:
     Sigma_module = torch.jit.load(
@@ -642,7 +642,6 @@ def main(argv):
                     init_lr,
                     init_beta=init_beta,
                     proposal_model=None,
-                    sample_interval=sample_interval,
                 )
             else:
                 train_model_parallel(
@@ -652,7 +651,6 @@ def main(argv):
                     accum_iter=accum_iter,
                     init_lr=init_lr,
                     proposal_model=None,
-                    sample_interval=sample_interval,
                 )
         else:
             print("initial learning rate: ", init_lr)

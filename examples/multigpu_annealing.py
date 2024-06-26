@@ -39,7 +39,7 @@ def get_open_port() -> int:
 def setup():
     # get IDs of reserved GPU
     distributed_init_method = f"tcp://{get_ip()}:{get_open_port()}"
-    dist.init_process_group(backend="nccl", init_method=distributed_init_method, world_size = int(os.environ["WORLD_SIZE"]), rank = int(os.environ["RANK"]))
+    dist.init_process_group(backend="gloo")#, init_method=distributed_init_method, world_size = int(os.environ["WORLD_SIZE"]), rank = int(os.environ["RANK"]))
     # init_method='env://',
     # world_size=int(os.environ["WORLD_SIZE"]),
     # rank=int(os.environ['SLURM_PROCID']))
@@ -120,10 +120,17 @@ def train_model_parallel(
                 #         loss = nfm.reverse_kld(num_samples)
                 #     else:
                 if proposal_model is None:
-                    loss = nfm.IS_forward_kld(num_samples)
+                    # loss = ddp_model.module.IS_forward_kld(num_samples)
+                    z, _ = nfm_input.q0(num_samples)
+                    z = nfm.forward(z.to(rank))
+                    loss = nfm_input.IS_forward_kld_direct(z.detach())
+                    #loss = nfm.IS_forward_kld(num_samples)
                 else:
                     x = proposal_model.mcmc_sample(sample_interval)
-                    loss = nfm.forward_kld(x)
+                    z, log_q = nfm.forward(x, rev=True)
+                    log_q += nfm_input.q0.log_prob(z)
+                    loss = -torch.mean(log_q) 
+                    #loss = nfm.forward_kld(x)
 
                 loss = loss / accum_iter
                 loss_accum += loss
@@ -132,11 +139,17 @@ def train_model_parallel(
                     loss.backward()
 
         if proposal_model is None:
-            loss = nfm.IS_forward_kld(num_samples)
+            z, _ = nfm_input.q0(num_samples)
+            z = nfm.forward(z.to(rank))
+            loss = nfm_input.IS_forward_kld_direct(z.detach())
+            #loss = nfm.IS_forward_kld(num_samples)
         else:
             x = proposal_model.mcmc_sample(sample_interval)
-            loss = nfm.forward_kld(x)
-
+            z, log_q = nfm.forward(x, rev=True)
+            log_q += nfm_input.q0.log_prob(z)
+            loss = -torch.mean(log_q) 
+            #loss = nfm.forward_kld(x)
+            
         loss = loss / accum_iter
         loss_accum += loss
         # Do backprop and optimizer step
