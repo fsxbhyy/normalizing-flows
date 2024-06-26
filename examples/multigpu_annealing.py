@@ -266,6 +266,10 @@ def train_model_parallel_annealing(
         optimizer, start_factor=0.1, total_iters=warmup_epochs
     )
 
+    if proposal_model is not None:
+        proposal_model.to(rank)
+        proposal_model.mcmc_sample(500, init=True)
+
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
     for it in (range(max_iter)):
