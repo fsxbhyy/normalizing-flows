@@ -10,15 +10,15 @@ from memory_profiler import memory_usage
 enable_cuda = True
 device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
 
-order = 5
-dim = 4 * order - 1
+max_order = 6
 beta = 10.0
-batch_size = 50000
-Neval = 50
+batch_size = 10000
+Neval = 20
 
 
 def benchmark_diagram(order, beta, batch_size):
     root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
+    dim = 4 * order - 1
     num_loops = [2, 6, 15, 39, 111, 448]
     partition = [(order, 0, 0)]
     name = "sigma"
@@ -45,7 +45,7 @@ def benchmark_diagram(order, beta, batch_size):
     var = torch.rand(batch_size, dim, device=device)
 
     t1 = benchmark.Timer(
-        stmt="diagram.prob(var, 0)",
+        stmt="diagram.prob(var)",
         globals={"diagram": diagram, "var": var},
         label="Self-energy diagram (order {0} beta {1})".format(order, beta),
         sub_label="Evaluating integrand (batchsize {0})".format(batch_size),
@@ -143,5 +143,6 @@ def benchmark_graph(batch_size, Neval):
 
 
 if __name__ == "__main__":
-    # benchmark_diagram(order, beta, batch_size)
-    benchmark_graph(batch_size, Neval)
+    for o in range(1, max_order + 1):
+        benchmark_diagram(o, beta, batch_size)
+    # benchmark_graph(batch_size, Neval)
