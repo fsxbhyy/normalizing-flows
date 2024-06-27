@@ -34,11 +34,14 @@ nblocks = 3052 * 4
 therm_steps = 3000
 mu = 0.0
 step_size = 0.044
-type = "gaussian"  # "gaussian" or "uniform"
+# type = "gaussian"  # "gaussian" or "uniform"
 # type = "uniform"  # "gaussian" or "uniform"
+type = None
 mix_rate = 0.1
 
-print(f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}")
+print(
+    f"batchsize {batchsize}, nblocks {nblocks}, therm_steps {therm_steps}, mix_rate {mix_rate}"
+)
 if type == "gaussian":
     print(f"Gaussian random-walk N({mu}, {step_size}^2)")
 elif type == "uniform":

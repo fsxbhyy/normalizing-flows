@@ -20,8 +20,9 @@ batch_size = 2000
 Nblocks = 400
 len_chain = 2000
 therm_steps = len_chain // 2
-step_size = 0.2
-norm_std = 0.4
+step_size = 0.01
+norm_std = 0.2
+mix_rate = 0.1
 
 print(
     f"batchsize {batch_size}, nblocks {Nblocks}, therm_steps {therm_steps}, Gaussian random-walk N({step_size}, {norm_std}^2)"
@@ -108,6 +109,7 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
             burn_in=therm_steps,
             step_size=step_size,
             norm_std=norm_std,
+            mix_rate=mix_rate,
         )
         print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
         print("alpha = ", alpha)
