@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from warnings import warn
-# from scipy.stats import kstest
+from scipy.stats import kstest
 
 from . import distributions
 from . import utils
@@ -358,31 +358,31 @@ class NormalizingFlow(nn.Module):
             #     histr_weight[:, d] += hist
         partition_z /= num_blocks
         # while calculate_correlation(means_t) > correlation_threshold:
-        # while (
-        #     kstest(
-        #         means_t.cpu(),
-        #         "norm",
-        #         args=(means_t.mean().item(), means_t.std().item()),
-        #     )[1]
-        #     < 0.05
-        # ):
-        #     print("correlation too high, merge blocks")
-        #     if num_blocks <= 64:
-        #         warn(
-        #             "blocks too small, increase burn-in or reduce thinning",
-        #             category=UserWarning,
-        #         )
-        #         break
-        #     num_blocks //= 2
-        #     means_t = (
-        #         means_t[torch.arange(0, num_blocks * 2, 2, device=device)]
-        #         + means_t[torch.arange(1, num_blocks * 2, 2, device=device)]
-        #     ) / 2.0
-        # print("new block number: ", num_blocks)
-        # statistic, p_value = kstest(
-        #     means_t.cpu(), "norm", args=(means_t.mean().item(), means_t.std().item())
-        # )
-        # print(f"K-S test: statistic {statistic}, p-value {p_value}.")
+        while (
+            kstest(
+                means_t.cpu(),
+                "norm",
+                args=(means_t.mean().item(), means_t.std().item()),
+            )[1]
+            < 0.05
+        ):
+            print("correlation too high, merge blocks")
+            if num_blocks <= 64:
+                warn(
+                    "blocks too small, increase burn-in or reduce thinning",
+                    category=UserWarning,
+                )
+                break
+            num_blocks //= 2
+            means_t = (
+                means_t[torch.arange(0, num_blocks * 2, 2, device=device)]
+                + means_t[torch.arange(1, num_blocks * 2, 2, device=device)]
+            ) / 2.0
+        print("new block number: ", num_blocks)
+        statistic, p_value = kstest(
+            means_t.cpu(), "norm", args=(means_t.mean().item(), means_t.std().item())
+        )
+        print(f"K-S test: statistic {statistic}, p-value {p_value}.")
         mean_combined = torch.mean(means_t)
         error_combined = torch.std(means_t) / num_blocks**0.5
 
@@ -673,47 +673,47 @@ class NormalizingFlow(nn.Module):
         var_q /= num_measure
         cov_pq /= num_measure
 
-        # while (
-        #     kstest(
-        #         values.cpu(), "norm", args=(values.mean().item(), values.std().item())
-        #     )[1]
-        #     < 0.05
-        #     or kstest(
-        #         ref_values.cpu(),
-        #         "norm",
-        #         args=(ref_values.mean().item(), ref_values.std().item()),
-        #     )[1]
-        #     < 0.05
-        # ):
-        #     print("correlation too high, merge blocks")
-        #     if num_blocks <= 64:
-        #         warn(
-        #             "blocks too small, increase burn-in or reduce thinning",
-        #             category=UserWarning,
-        #         )
-        #         break
-        #     num_blocks //= 2
-        #     even_idx = torch.arange(0, num_blocks * 2, 2, device=device)
-        #     odd_idx = torch.arange(1, num_blocks * 2, 2, device=device)
-        #     values = (values[even_idx] + values[odd_idx]) / 2.0
-        #     abs_values = (abs_values[even_idx] + abs_values[odd_idx]) / 2.0
-        #     ref_values = (ref_values[even_idx] + ref_values[odd_idx]) / 2.0
-        #     var_p = (var_p[even_idx] + var_p[odd_idx]) / 2.0
-        #     var_q = (var_q[even_idx] + var_q[odd_idx]) / 2.0
-        #     cov_pq = (cov_pq[even_idx] + cov_pq[odd_idx]) / 2.0
-        # print("new block number: ", num_blocks)
+        while (
+            kstest(
+                values.cpu(), "norm", args=(values.mean().item(), values.std().item())
+            )[1]
+            < 0.05
+            or kstest(
+                ref_values.cpu(),
+                "norm",
+                args=(ref_values.mean().item(), ref_values.std().item()),
+            )[1]
+            < 0.05
+        ):
+            print("correlation too high, merge blocks")
+            if num_blocks <= 64:
+                warn(
+                    "blocks too small, increase burn-in or reduce thinning",
+                    category=UserWarning,
+                )
+                break
+            num_blocks //= 2
+            even_idx = torch.arange(0, num_blocks * 2, 2, device=device)
+            odd_idx = torch.arange(1, num_blocks * 2, 2, device=device)
+            values = (values[even_idx] + values[odd_idx]) / 2.0
+            abs_values = (abs_values[even_idx] + abs_values[odd_idx]) / 2.0
+            ref_values = (ref_values[even_idx] + ref_values[odd_idx]) / 2.0
+            var_p = (var_p[even_idx] + var_p[odd_idx]) / 2.0
+            var_q = (var_q[even_idx] + var_q[odd_idx]) / 2.0
+            cov_pq = (cov_pq[even_idx] + cov_pq[odd_idx]) / 2.0
+        print("new block number: ", num_blocks)
 
-        # statistic, p_value = kstest(
-        #     values.cpu(), "norm", args=(values.mean().item(), values.std().item())
-        # )
-        # print(f"K-S test of values: statistic {statistic}, p-value {p_value}")
+        statistic, p_value = kstest(
+            values.cpu(), "norm", args=(values.mean().item(), values.std().item())
+        )
+        print(f"K-S test of values: statistic {statistic}, p-value {p_value}")
 
-        # statistic, p_value = kstest(
-        #     ref_values.cpu(),
-        #     "norm",
-        #     args=(ref_values.mean().item(), ref_values.std().item()),
-        # )
-        # print(f"K-S test of ref_values: statistic {statistic}, p-value {p_value}")
+        statistic, p_value = kstest(
+            ref_values.cpu(),
+            "norm",
+            args=(ref_values.mean().item(), ref_values.std().item()),
+        )
+        print(f"K-S test of ref_values: statistic {statistic}, p-value {p_value}")
 
         ratio_mean = torch.mean(values) / torch.mean(ref_values)
         abs_val_mean = torch.mean(abs_values) / torch.mean(ref_values)
@@ -735,10 +735,10 @@ class NormalizingFlow(nn.Module):
 
         print("old result: {:.5e} +- {:.5e}".format(_mean.item(), error.item()))
 
-        # statistic, p_value = kstest(
-        #     values.cpu(), "norm", args=(_mean.item(), _std.item())
-        # )
-        # print(f"K-S test of ratio values: statistic {statistic}, p-value {p_value}")
+        statistic, p_value = kstest(
+            values.cpu(), "norm", args=(_mean.item(), _std.item())
+        )
+        print(f"K-S test of ratio values: statistic {statistic}, p-value {p_value}")
 
         abs_values /= ref_values
         err_absval = torch.std(abs_values) / num_blocks**0.5

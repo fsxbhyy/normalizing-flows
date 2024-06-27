@@ -220,7 +220,9 @@ class VegasMap(torch.nn.Module):
         step_size=0.2,
         mu=0.0,
         type=None,  # None, "gaussian" or "uniform"
-        mix_rate=0.1,
+        mix_rate=0.0,
+        adaptive=False,
+        adapt_acc_rate=0.2,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -279,16 +281,8 @@ class VegasMap(torch.nn.Module):
                     self.y[bool_mask, :] + (proposed_y[bool_mask, :] - 0.5) * step_size
                 ) % 1.0
 
-            try:
-                proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
-            except Exception as e:
-                print("Error in forward pass")
-                traceback.print_exc()
-                save_path = os.getcwd()
-                torch.save(proposed_y, os.path.join(save_path, "proposed_y.pt"))
-                torch.save(self.inc, os.path.join(save_path, "vegas_inc.pt"))
-                torch.save(self.grid, os.path.join(save_path, "vegas_grid.pt"))
-                sys.exit(-1)
+            proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
+
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(
                 self.target.prob(proposed_samples)
             )
@@ -308,12 +302,12 @@ class VegasMap(torch.nn.Module):
             current_qinv = torch.where(accept, proposed_qinv, current_qinv)
             # self.p.log_q[accept] = proposed_log_q[accept]
 
-            # if i % 50 == 0 and i > 0:
-            #     accept_rate = accept.sum().item() / batch_size
-            #     if accept_rate < 0.4:
-            #         step_size *= 0.9
-            #     else:
-            #         step_size *= 1.1
+            if adaptive and i % 100 == 0 and i > 0:
+                accept_rate = accept.sum().item() / batch_size
+                if accept_rate < adapt_acc_rate:
+                    step_size *= 0.9
+                else:
+                    step_size *= 1.1
         print("Adjusted step size: ", step_size)
 
         current_prob = self.target.prob(current_samples)
@@ -496,7 +490,10 @@ class VegasMap(torch.nn.Module):
             )
         )
 
-        return ratio_mean, ratio_err
+        if adaptive:
+            return ratio_mean, ratio_err, step_size
+        else:
+            return ratio_mean, ratio_err
 
 
 # Function to calculate correlation between adjacent blocks
