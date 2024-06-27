@@ -2,6 +2,9 @@ import torch
 from vegas import AdaptiveMap
 from warnings import warn
 from scipy.stats import kstest
+import sys
+import os
+import traceback
 
 
 class VegasMap(torch.nn.Module):
@@ -216,7 +219,7 @@ class VegasMap(torch.nn.Module):
         alpha=1.0,
         step_size=0.2,
         mu=0.0,
-        type="gaussian",
+        type=None,  # None, "gaussian" or "uniform"
         mix_rate=0.1,
     ):
         """
@@ -258,6 +261,7 @@ class VegasMap(torch.nn.Module):
         bool_mask = torch.zeros(batch_size, device=device, dtype=torch.bool)
         for i in range(burn_in):
             # Propose new samples
+            proposed_y[:] = torch.rand(vars_shape, device=device)
             if type == "gaussian":
                 bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
                 proposed_y[bool_mask, :] = (
@@ -272,22 +276,19 @@ class VegasMap(torch.nn.Module):
             elif type == "uniform":
                 bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
                 proposed_y[bool_mask, :] = (
-                    self.y[bool_mask, :]
-                    + (
-                        torch.rand(bool_mask.sum().item(), num_vars, device=device)
-                        - 0.5
-                    )
-                    * step_size
+                    self.y[bool_mask, :] + (proposed_y[bool_mask, :] - 0.5) * step_size
                 ) % 1.0
-            else:
-                proposed_y[:] = torch.rand(vars_shape, device=device)
 
             try:
                 proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
-            except Exception:
+            except Exception as e:
                 print("Error in forward pass")
-                print(proposed_y)
-                exit(-1)
+                traceback.print_exc()
+                save_path = os.getcwd()
+                torch.save(proposed_y, os.path.join(save_path, "proposed_y.pt"))
+                torch.save(self.inc, os.path.join(save_path, "vegas_inc.pt"))
+                torch.save(self.grid, os.path.join(save_path, "vegas_grid.pt"))
+                sys.exit(-1)
             new_weight[:] = alpha / proposed_qinv + (1 - alpha) * torch.abs(
                 self.target.prob(proposed_samples)
             )
@@ -326,6 +327,7 @@ class VegasMap(torch.nn.Module):
         num_measure = 0
         for i in range(len_chain):
             # Propose new samples
+            proposed_y[:] = torch.rand(vars_shape, device=device)
             if type == "gaussian":
                 bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
                 proposed_y[bool_mask, :] = (
@@ -340,15 +342,8 @@ class VegasMap(torch.nn.Module):
             elif type == "uniform":
                 bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
                 proposed_y[bool_mask, :] = (
-                    self.y[bool_mask, :]
-                    + (
-                        torch.rand(bool_mask.sum().item(), num_vars, device=device)
-                        - 0.5
-                    )
-                    * step_size
+                    self.y[bool_mask, :] + (proposed_y[bool_mask, :] - 0.5) * step_size
                 ) % 1.0
-            else:
-                proposed_y[:] = torch.rand(vars_shape, device=device)
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
             new_prob[:] = self.target.prob(proposed_samples)
