@@ -20,10 +20,11 @@ root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 2
 dim = 4 * order - 1
-beta = 16.0
-solution = 0.2773  # order 2
+beta = 32.0
+solution = 0.23  # order 2
 # solution = -0.03115 # order 3
 integration_domain = [[0, 1]] * dim
+alpha_opt = abs(solution / (solution + 1))
 
 num_adapt_samples = 1000000
 # batchsize = 4096
@@ -48,6 +49,7 @@ elif type == "uniform":
     print(f"Uniform random-walk U(-{step_size}, {step_size})")
 else:
     print("Global random sampling")
+print("\n")
 
 partition = [(order, 0, 0)]
 name = "sigma"
@@ -159,7 +161,7 @@ mean, error, adapt_step_size = map_torch.mcmc(
 )
 print("   VEGAS-map MCMC (alpha = 0):", f"{mean:.6f} +- {error:.6f}")
 print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))
-for alpha in [0.1, 0.189, 0.9, 1.0]:
+for alpha in [0.1, 0.9, 1.0]:
     start_time = time.time()
     mean, error = map_torch.mcmc(
         len_chain,

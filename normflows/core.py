@@ -501,10 +501,10 @@ class NormalizingFlow(nn.Module):
         burn_in=None,
         thinning=1,
         alpha=1.0,
-        step_size=0.2,
-        mu=0.0,
-        type=None,  # None, "gaussian" or "uniform"
-        mix_rate=0.1,
+        step_size=0.2,  # uniform random walk step size
+        mix_rate=0.0,  # mix global random sampling with random walk
+        adaptive=False,
+        adapt_acc_rate=0.4,
     ):
         """
         Perform MCMC integration using batch processing. Using the Metropolis-Hastings algorithm to sample the distribution:
@@ -557,7 +557,7 @@ class NormalizingFlow(nn.Module):
             ) % 1.0
             # proposed_z[bool_mask, :] = (
             #     current_z
-            #     + torch.normal(step_size, norm_std, size=vars_shape, device=device)
+            #     + torch.normal(mu, step_size, size=vars_shape, device=device)
             # ) % 1.0
             proposed_samples[:] = proposed_z
             for flow in self.flows:
@@ -583,12 +583,13 @@ class NormalizingFlow(nn.Module):
             self.p.log_q = torch.where(accept, proposed_log_q, self.p.log_q)
             # self.p.log_q[accept] = proposed_log_q[accept]
 
-            # if i % 100 == 0 and i > 0:
-            #     accept_rate = accept.sum().item() / batch_size
-            #     if accept_rate < 0.4:
-            #         step_size *= 0.9
-            #     else:
-            #         step_size *= 1.1
+            if adaptive and i % 100 == 0 and i > 0:
+                accept_rate = accept.sum().item() / batch_size
+                if accept_rate < adapt_acc_rate:
+                    step_size *= 0.9
+                else:
+                    step_size *= 1.1
+        print("Adjusted step size: ", step_size)
 
         self.p.val = self.p.prob(self.p.samples)
         new_prob = torch.empty_like(self.p.val)
@@ -610,7 +611,7 @@ class NormalizingFlow(nn.Module):
             ) % 1.0
             # proposed_z[bool_mask, :] = (
             #     current_z[bool_mask, :]
-            #     + torch.normal(step_size, norm_std, size=vars_shape, device=device)
+            #     + torch.normal(mu, step_size, size=vars_shape, device=device)
             # ) % 1.0
             proposed_samples[:] = proposed_z
             for flow in self.flows:
@@ -672,6 +673,7 @@ class NormalizingFlow(nn.Module):
         var_p /= num_measure
         var_q /= num_measure
         cov_pq /= num_measure
+        total_num_measure = num_measure * batch_size
 
         while (
             kstest(
@@ -785,11 +787,14 @@ class NormalizingFlow(nn.Module):
         )
         print(
             "theoretical estimated error : {:.5e}".format(
-                (var_pq_mean / num_measure).item() ** 0.5
+                (var_pq_mean / total_num_measure).item() ** 0.5
             )
         )
 
-        return ratio_mean, ratio_err
+        if adaptive:
+            return ratio_mean, ratio_err, step_size
+        else:
+            return ratio_mean, ratio_err
 
     def log_prob(self, x):
         """Get log probability for batch

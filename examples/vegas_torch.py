@@ -375,6 +375,7 @@ class VegasMap(torch.nn.Module):
         var_p /= num_measure
         var_q /= num_measure
         cov_pq /= num_measure
+        total_num_measure = num_measure * batch_size
 
         while (
             kstest(
@@ -486,7 +487,7 @@ class VegasMap(torch.nn.Module):
         )
         print(
             "theoretical estimated error : {:.5e}".format(
-                (var_pq_mean / num_measure).item() ** 0.5
+                (var_pq_mean / total_num_measure).item() ** 0.5
             )
         )
 

@@ -14,6 +14,8 @@ root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
 order = 2
 beta = 16.0
+solution = 0.23  # order 2
+
 nfm_batchsize = 20000
 batch_size = 2000
 # Nblocks = batch_size
@@ -21,12 +23,17 @@ Nblocks = 400
 len_chain = 2000
 therm_steps = len_chain // 2
 step_size = 0.01
-norm_std = 0.2
 mix_rate = 0.1
 
+alpha_opt = abs(solution / (solution + 1))
+accept_rate = 0.4
+
 print(
-    f"batchsize {batch_size}, nblocks {Nblocks}, therm_steps {therm_steps}, Gaussian random-walk N({step_size}, {norm_std}^2)"
+    f"batchsize {batch_size}, nblocks {Nblocks}, therm_steps {therm_steps}, mix_rate {mix_rate}"
 )
+if mix_rate != 1.0:
+    print(f"Uniform random-walk U(-{step_size}, {step_size})")
+print("\n")
 
 num_hidden_layers = 1
 model_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state1.pt".format(
@@ -99,7 +106,26 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     loss = nfm.loss_block(100, partition_z)
     print("Loss = ", loss, "\n")
 
-    for alpha in [0.0, 0.1, 0.9, 1.0]:
+    start_time = time.time()
+    mean_mcmc, err_mcmc, adapt_step_size = nfm.mcmc_integration(
+        num_blocks=blocks,
+        len_chain=len_chain,
+        thinning=1,
+        alpha=0.0,
+        burn_in=therm_steps,
+        step_size=step_size,
+        mix_rate=mix_rate,
+        adaptive=True,
+        adapt_acc_rate=accept_rate,
+    )
+    print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
+    print("alpha = 0")
+    print(
+        "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n".format(
+            len_chain * batch_size, mean_mcmc, err_mcmc
+        )
+    )
+    for alpha in [0.1, 0.9, 1.0]:
         start_time = time.time()
         mean_mcmc, err_mcmc = nfm.mcmc_integration(
             num_blocks=blocks,
@@ -107,8 +133,7 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
             thinning=1,
             alpha=alpha,
             burn_in=therm_steps,
-            step_size=step_size,
-            norm_std=norm_std,
+            step_size=adapt_step_size,
             mix_rate=mix_rate,
         )
         print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
