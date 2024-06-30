@@ -459,7 +459,7 @@ def retrain_model(
         current_lr = optimizer.param_groups[0]["lr"]
         if it % 10 == 0:
             print(
-                f"Iteration {it}, beta: {current_beta}, Loss: {loss_accum}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
+                f"Iteration {it}, beta: {current_beta}, Loss: {loss_accum.item()}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
             )
 
         scheduler.step(it)

@@ -3,7 +3,7 @@ using CompositeGrids
 
 dim = 3
 rs = [2.0]
-order = [4]  # maximum diagram order of the run
+order = [6]  # maximum diagram order of the run
 mass2 = [0.5]
 
 Fs = [-0.0]        # Fermi liquid parameter with zero angular momentum

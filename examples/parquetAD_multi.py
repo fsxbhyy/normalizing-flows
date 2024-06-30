@@ -6,20 +6,19 @@ import re
 import normflows as nf
 import mpmath
 from mpmath import polylog, gamma, findroot
+
 # from nsf_integrator import generate_model, train_model
 from nsf_annealing import (
     generate_model,
     train_model,
     train_model_annealing,
-    retrain_model,
 )
 from multigpu_annealing import *
 from functools import partial
-#from nsf_multigpu import *
+
+# from nsf_multigpu import *
 from funcs_sigma import *
 import time
-
-from matplotlib import pyplot as plt
 import tracemalloc
 # from torch.utils.viz._cycles import warn_tensor_cycles
 
@@ -331,7 +330,7 @@ class FeynmanDiagram(nf.distributions.Target):
     def prob(self, var):
         self._evalleaf(var)
         # self.eval_graph(self.root, self.leafvalues)
-        #self.root[:] = self.eval_graph(self.leafvalues)
+        # self.root[:] = self.eval_graph(self.leafvalues)
         self.root[:] = eval_graph(self.leafvalues)
         return self.root.sum(dim=1) * (
             self.factor
@@ -382,6 +381,7 @@ def load_leaf_info(root_dir, name, key_str):
 def retrain(argv):
     del argv
 
+    setup()
     partition = [(order, 0, 0)]
     name = "sigma"
     df = pd.read_csv(os.path.join(root_dir, f"loopBasis_{name}_maxOrder6.csv"))
@@ -408,9 +408,19 @@ def retrain(argv):
         num_hidden_channels=num_hidden_channels,
         num_bins=num_bins,
     )
+    if has_init_model:
+        state_dict = torch.load(init_state_dict_path)["model_state_dict"]
+
+        pmodel_state_dict = nfm.state_dict()
+        partial_state_dict = {
+            k: v
+            for k, v in state_dict.items()
+            if k in pmodel_state_dict and "p." not in k
+        }
+        pmodel_state_dict.update(partial_state_dict)
+        nfm.load_state_dict(pmodel_state_dict)
 
     epochs = Nepochs
-    blocks = Nblocks
 
     start_time = time.time()
     if has_proposal_nfm:
@@ -433,56 +443,36 @@ def retrain(argv):
         proposal_model.load_state_dict(pmodel_state_dict)
         proposal_model.eval()
 
-        retrain_model(
+        retrain_model_parallel(
             nfm,
             init_state_dict_path,
             epochs,
+            diagram.batchsize,
             accum_iter,
-            init_beta,
+            init_lr,
             proposal_model=proposal_model,
             sample_interval=sample_interval,
         )
     else:
-        retrain_model(
+        retrain_model_parallel(
             nfm,
             init_state_dict_path,
             epochs,
+            diagram.batchsize,
             accum_iter,
-            init_beta,
+            init_lr,
         )
 
     print("Training time: {:.3f}s \n".format(time.time() - start_time))
 
-    start_time = time.time()
-
-    num_hist_bins = 25
-    if is_save:
+    global_rank = int(os.environ["RANK"])
+    if is_save and global_rank == 0:
         torch.save(
             nfm.state_dict(),
-            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state_test.pt".format(
+            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state_Re.pt".format(
                 order, beta, num_blocks, num_hidden_channels, num_bins
             ),
         )
-
-    with torch.no_grad():
-        mean, err, partition_z = nfm.integrate_block(blocks, num_hist_bins)
-    print("Final integration time: {:.3f}s".format(time.time() - start_time))
-    print(
-        "Result with {:d} is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * diagram.batchsize, mean, err, nfm.p.targetval
-        )
-    )
-    loss = nfm.loss_block(400, partition_z)
-    print("Final loss: ", loss, "\n")
-
-    start_time = time.time()
-    mean_mcmc, err_mcmc = nfm.mcmc_integration(len_chain=blocks, thinning=1, alpha=0.1)
-    print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
-    print(
-        "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n Target result:{:.5e}".format(
-            blocks * diagram.batchsize, mean_mcmc, err_mcmc, nfm.p.targetval
-        )
-    )
 
 
 def main(argv):
@@ -531,12 +521,11 @@ def main(argv):
     #     if param.requires_grad:
     #         print(name, param.data.shape)
     epochs = Nepochs
-    blocks = Nblocks
 
     # torch.cuda.memory._record_memory_history()
     # tracemalloc.start()
     start_time = time.time()
-    #Integration before training
+    # Integration before training
     # with torch.no_grad():
     #     mean, err, partition_z = nfm.integrate_block(blocks)
     # print("Initial integration time: {:.3f}s".format(time.time() - start_time))
@@ -549,8 +538,6 @@ def main(argv):
     #     )
     # )
 
-
-
     # snapshot = tracemalloc.take_snapshot()
     # top_stats = snapshot.statistics("lineno")
     # print("[ Top 20 ]")
@@ -561,9 +548,9 @@ def main(argv):
 
     if has_proposal_nfm:
         # proposal_model = torch.load("nfm_o{0}_beta{1}.pt".format(order, beta))
-        diagram = FeynmanDiagram(
-            order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
-        )
+        # diagram = FeynmanDiagram(
+        #     order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
+        # )
         proposal_model = generate_model(
             diagram,
             num_blocks=num_blocks,
@@ -663,14 +650,14 @@ def main(argv):
 
     print("Training time: {:.3f}s".format(time.time() - start_time))
 
-    #Integration after
+    # Integration after
     # print("Start computing integration...")
     # start_time = time.time()
     # num_hist_bins = 25
     # if multi_gpu:
     #     nfm = torch.load("checkpoint.pt")
     global_rank = int(os.environ["RANK"])
-    if is_save and global_rank==0:
+    if is_save and global_rank == 0:
         # nfm.save(
         #     "nfm_o{0}_beta{1}_l{2}c{3}b{4}.pt".format(
         #         order, beta, num_blocks, num_hidden_channels, num_bins
@@ -678,7 +665,7 @@ def main(argv):
         # )
         torch.save(
             nfm.state_dict(),
-            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state_test.pt".format(
+            "nfm_o{0}_beta{1}_l{2}c{3}b{4}_state_multi.pt".format(
                 order, beta, num_blocks, num_hidden_channels, num_bins
             ),
         )

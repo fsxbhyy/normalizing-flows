@@ -404,6 +404,168 @@ def train_model_parallel_annealing(
         print(loss_hist)
 
 
+def retrain_model_parallel(
+    nfm_input,
+    checkpoint_path,
+    max_iter=1000,
+    num_samples=10000,
+    accum_iter=10,
+    init_lr=8e-3,
+    proposal_model=None,
+    save_checkpoint=True,
+    sample_interval=5,
+    T_0=100,
+    T_mult=2,
+):
+    """
+    Train a neural network model with gradient accumulation.
+
+    Args:
+        nfm: The neural network model to train.
+        max_iter: The maximum number of training iterations.
+        num_samples: The number of samples to use for training.
+        accum_iter: The number of iterations to accumulate gradients.
+        proposal_model: An optional proposal model for sampling.
+        save_checkpoint: Whether to save checkpoints during training every 100 iterations.
+    """
+
+    global_rank = int(os.environ["RANK"])
+    rank = int(os.environ["LOCAL_RANK"])
+    if global_rank == 0:
+        print(f"Running basic DDP example on rank {rank}.")
+
+    # Load the checkpoint
+    checkpoint = torch.load(checkpoint_path)
+    checkpoint_state_dict = checkpoint["model_state_dict"]
+
+    # Load model state
+    nfm_state_dict = nfm_input.state_dict()
+    partial_state_dict = {
+        k: v
+        for k, v in checkpoint_state_dict.items()
+        if k in nfm_state_dict and "p." not in k
+    }
+    nfm_state_dict.update(partial_state_dict)
+    nfm_input.load_state_dict(nfm_state_dict)
+
+    nfm = DDP(nfm_input.to(rank), device_ids=[rank])
+
+    order = nfm_input.p.innerLoopNum
+    nfm.train()  # Set model to training mode
+    loss_hist = []
+    # writer = SummaryWriter()  # Initialize TensorBoard writer
+    if global_rank == 0:
+        print("start training \n")
+
+    # Load optimizer state
+    optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    # Load scheduler state
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=T_0, T_mult=T_mult
+    )
+    scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+    if proposal_model is not None:
+        proposal_model.to(rank)
+        proposal_model.mcmc_sample(1000, init=True)
+
+    # for name, module in nfm.named_modules():
+    #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
+    for it in range(max_iter):
+        start_time = time.time()
+
+        optimizer.zero_grad()
+        loss_accum = torch.zeros(1, requires_grad=False, device=rank)
+        with nfm.no_sync():
+            for _ in range(accum_iter - 1):
+                # Compute loss
+                #     if(it<max_iter/2):
+                #         loss = nfm.reverse_kld(num_samples)
+                #     else:
+                if proposal_model is None:
+                    # loss = ddp_model.module.IS_forward_kld(num_samples)
+                    z, _ = nfm_input.q0(num_samples)
+                    z = nfm.forward(z.to(rank))
+                    loss = nfm_input.IS_forward_kld_direct(z.detach())
+                    # loss = nfm.IS_forward_kld(num_samples)
+                else:
+                    x = proposal_model.mcmc_sample(sample_interval)
+                    z, log_q = nfm.forward(x, rev=True)
+                    log_q += nfm_input.q0.log_prob(z)
+                    loss = -torch.mean(log_q)
+                    # loss = nfm.forward_kld(x)
+
+                loss = loss / accum_iter
+                loss_accum += loss
+                # Do backprop and optimizer step
+                if ~(torch.isnan(loss) | torch.isinf(loss)):
+                    loss.backward()
+
+        if proposal_model is None:
+            z, _ = nfm_input.q0(num_samples)
+            z = nfm.forward(z.to(rank))
+            loss = nfm_input.IS_forward_kld_direct(z.detach())
+            # loss = nfm.IS_forward_kld(num_samples)
+        else:
+            x = proposal_model.mcmc_sample(sample_interval)
+            z, log_q = nfm.forward(x, rev=True)
+            log_q += nfm_input.q0.log_prob(z)
+            loss = -torch.mean(log_q)
+            # loss = nfm.forward_kld(x)
+
+        loss = loss / accum_iter
+        loss_accum += loss
+        # Do backprop and optimizer step
+        if ~(torch.isnan(loss) | torch.isinf(loss)):
+            loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(
+            nfm.parameters(), max_norm=1.0
+        )  # Gradient clipping
+        optimizer.step()
+
+        if it % 10 == 0 and global_rank == 0:
+            print(
+                f"Iteration {it}, Loss: {loss_accum.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
+            )
+
+        # Scheduler step after optimizer step
+        scheduler.step(it)
+        # scheduler.step(loss_accum)  # ReduceLROnPlateau
+        # scheduler.step()  # CosineAnnealingLR
+
+        # Log loss
+        loss_hist.append(loss_accum.item())
+
+        # # Log metrics
+        # writer.add_scalar("Loss/train", loss.item(), it)
+        # writer.add_scalar("Learning Rate", optimizer.param_groups[0]["lr"], it)
+
+        # save checkpoint
+        if scheduler.T_cur == scheduler.T_0 and save_checkpoint and global_rank == 0:
+            torch.save(
+                {
+                    "model_state_dict": nfm.module.state_dict()
+                    if hasattr(nfm, "module")
+                    else nfm.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "loss_hist": loss_hist,
+                },
+                f"nfm_o{order}_cyclend_checkpoint{it}.pth",
+            )
+
+    # writer.close()
+    if global_rank == 0:
+        print("training finished \n")
+        # print(nfm.flows[0].pvct.grid)
+        # print(nfm.flows[0].pvct.inc)
+        print(loss_hist)
+    cleanup()
+
+
 def train_model_parallel_example(
     nfm,
     max_iter=1000,
