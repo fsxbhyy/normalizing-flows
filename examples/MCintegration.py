@@ -16,11 +16,9 @@ order = 2
 beta = 16.0
 solution = 0.23  # order 2
 
-nfm_batchsize = 20000
-batch_size = 2000
-# Nblocks = batch_size
-Nblocks = 400
-len_chain = 2000
+nfm_batchsize = 50000
+batch_size = 32768
+len_chain = 3052
 therm_steps = len_chain // 2
 step_size = 0.01
 mix_rate = 0.1
@@ -29,7 +27,7 @@ alpha_opt = abs(solution / (solution + 1))
 accept_rate = 0.4
 
 print(
-    f"batchsize {batch_size}, nblocks {Nblocks}, therm_steps {therm_steps}, mix_rate {mix_rate}"
+    f"batchsize {batch_size}, therm_steps {therm_steps}, sampling_steps {len_chain}, mix_rate {mix_rate}"
 )
 if mix_rate != 1.0:
     print(f"Uniform random-walk U(-{step_size}, {step_size})")
@@ -57,10 +55,8 @@ for key in partition:
     leafvalues.append(values)
 
 
-def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
-    print(
-        f"{blocks} blocks, {len_chain} samples per markov chain, batch size {batch_size}"
-    )
+def main(beta, len_chain, batch_size, nfm_batchsize):
+    print(f"{len_chain} samples per markov chain, batch size {batch_size}")
     diagram_nfm = FeynmanDiagram(
         order, beta, loopBasis, leafstates[0], leafvalues[0], nfm_batchsize
     )
@@ -103,12 +99,11 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
             len_chain * batch_size, mean, err
         )
     )
-    loss = nfm.loss_block(100, partition_z)
+    loss = nfm.loss_block(400, partition_z)
     print("Loss = ", loss, "\n")
 
     start_time = time.time()
     mean_mcmc, err_mcmc, adapt_step_size = nfm.mcmc_integration(
-        num_blocks=blocks,
         len_chain=len_chain,
         thinning=1,
         alpha=0.0,
@@ -128,7 +123,6 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
     for alpha in [0.1, 0.9, 1.0]:
         start_time = time.time()
         mean_mcmc, err_mcmc = nfm.mcmc_integration(
-            num_blocks=blocks,
             len_chain=len_chain,
             thinning=1,
             alpha=alpha,
@@ -146,4 +140,4 @@ def main(blocks, beta, len_chain, batch_size, nfm_batchsize):
 
 
 if __name__ == "__main__":
-    main(Nblocks, beta, len_chain, batch_size, nfm_batchsize)
+    main(beta, len_chain, batch_size, nfm_batchsize)

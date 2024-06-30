@@ -24,11 +24,11 @@ beta = 32.0
 solution = 0.23  # order 2
 # solution = -0.03115 # order 3
 integration_domain = [[0, 1]] * dim
-alpha_opt = abs(solution / (solution + 1))
-
-num_adapt_samples = 1000000
-batchsize = 32768
 niters = 20
+num_adapt_samples = 2000000
+
+alpha_opt = abs(solution / (solution + 1))
+batchsize = 32768
 nblocks = 3052
 therm_steps = 1000
 mu = 0.0
