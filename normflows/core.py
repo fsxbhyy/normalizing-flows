@@ -451,14 +451,14 @@ class NormalizingFlow(nn.Module):
         device = self.p.samples.device
         vars_shape = self.p.samples.shape
         epsilon = 1e-16  # Small value to ensure numerical stability
-        if init:  # Initialize chains
-            self.p.samples[:], self.p.log_q[:] = self.q0(batch_size)
-            for flow in self.flows:
-                self.p.samples[:], log_det = flow(self.p.samples)
-                self.p.log_q -= log_det
 
         proposed_samples = torch.empty(vars_shape, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
+        if init:  # Initialize chains
+            self.p.samples[:], self.p.log_q[:] = self.q0(batch_size)
+            for flow in self.flows:
+                self.p.samples, log_det = flow(self.p.samples)
+                self.p.log_q -= log_det
 
         current_weight = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
             self.p.prob(self.p.samples)
@@ -471,7 +471,7 @@ class NormalizingFlow(nn.Module):
             # Propose new samples using the normalizing flow
             proposed_samples[:], proposed_log_q[:] = self.q0(batch_size)
             for flow in self.flows:
-                proposed_samples[:], proposed_log_det = flow(proposed_samples)
+                proposed_samples, proposed_log_det = flow(proposed_samples)
                 proposed_log_q -= proposed_log_det
 
             new_weight[:] = alpha * torch.exp(proposed_log_q) + (1 - alpha) * torch.abs(
@@ -500,7 +500,7 @@ class NormalizingFlow(nn.Module):
         len_chain=1000,
         burn_in=None,
         thinning=1,
-        alpha=1.0,
+        alpha=0.1,
         step_size=0.2,  # uniform random walk step size
         mix_rate=0.0,  # mix global random sampling with random walk
         adaptive=False,
@@ -530,14 +530,15 @@ class NormalizingFlow(nn.Module):
             burn_in = len_chain // 4
 
         # Initialize chains
+        proposed_z = torch.empty(vars_shape, device=device)
+        proposed_samples = torch.empty(vars_shape, device=device)
+        proposed_log_q = torch.empty(batch_size, device=device)
+
         current_z, self.p.log_q[:] = self.q0(batch_size)
         self.p.samples[:] = current_z
         for flow in self.flows:
             self.p.samples[:], log_det = flow(self.p.samples)
             self.p.log_q -= log_det
-        proposed_z = torch.empty(vars_shape, device=device)
-        proposed_samples = torch.empty(vars_shape, device=device)
-        proposed_log_q = torch.empty(batch_size, device=device)
 
         current_weight = alpha * torch.exp(self.p.log_q) + (1 - alpha) * torch.abs(
             self.p.prob(self.p.samples)

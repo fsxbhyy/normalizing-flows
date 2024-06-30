@@ -358,7 +358,7 @@ def train_model_annealing(
                 # scheduler.T_0 = max_iter - it
                 # scheduler.T_i = max_iter - it
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-                    optimizer, T_0=T_0 * 2, T_mult=2
+                    optimizer, T_0=T_0, T_mult=2
                 )
             nfm.p.beta = current_beta / nfm.p.EF
             nfm.p.mu = chemical_potential(current_beta, nfm.p.dim) * nfm.p.EF
@@ -500,7 +500,7 @@ def retrain_model(
                 #     optimizer, mode="min", factor=0.5, patience=10, verbose=True
                 # )
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-                    optimizer, T_0=scheduler.T_0 * 2, T_mult=2
+                    optimizer, T_0=scheduler.T_0, T_mult=2
                 )
             nfm.p.beta = current_beta / nfm.p.EF
             nfm.p.mu = chemical_potential(current_beta, nfm.p.dim) * nfm.p.EF

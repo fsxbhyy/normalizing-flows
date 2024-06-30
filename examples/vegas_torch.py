@@ -1,5 +1,5 @@
 import torch
-from vegas import AdaptiveMap
+import vegas
 from warnings import warn
 from scipy.stats import kstest
 import sys
@@ -19,22 +19,35 @@ class VegasMap(torch.nn.Module):
         num_adapt_samples=1000000,
         num_increments=1000,
         niters=20,
+        alpha=1.0,
     ):
         super().__init__()
 
-        vegas_map = AdaptiveMap(integration_region, ninc=num_increments)
+        vegas_map = vegas.AdaptiveMap(integration_region, ninc=num_increments)
         # y = np.random.uniform(0.0, 1.0, (num_adapt_samples, num_input_channels))
-        y = torch.rand(num_adapt_samples, num_input_channels, dtype=torch.float64)
-        prob = torch.empty(num_adapt_samples)
+
         nblock = num_adapt_samples // batchsize
-        for i in range(nblock):
-            # prob.append(func(y[i * batchsize : (i + 1) * batchsize]))
-            prob[i * batchsize : (i + 1) * batchsize] = target.prob(
-                y[i * batchsize : (i + 1) * batchsize]
-            )
-        vegas_map.adapt_to_samples(
-            y[: nblock * batchsize, :], prob[: nblock * batchsize], nitn=niters
-        )
+        num_adapt_samples = nblock * batchsize
+        y = torch.rand(num_adapt_samples, num_input_channels, dtype=torch.float64)
+        fx = torch.empty(num_adapt_samples, dtype=torch.float64)
+
+        # @vegas.batchintegrand
+        # def func(x):
+        #     return torch.Tensor.numpy(target.prob(torch.Tensor(x)))
+        # vegas_map.adapt_to_samples(y.numpy(), func, nitn=niters)
+
+        x = torch.empty_like(y)
+        jac = torch.empty(num_adapt_samples, dtype=torch.float64)
+        f2 = torch.empty(num_adapt_samples, dtype=torch.float64)
+        for _ in range(niters):
+            vegas_map.map(y.numpy(), x.numpy(), jac.numpy())
+            for i in range(nblock):
+                fx[i * batchsize : (i + 1) * batchsize] = target.prob(
+                    x[i * batchsize : (i + 1) * batchsize]
+                )
+            f2 = (jac * fx) ** 2
+            vegas_map.add_training_data(y.numpy(), f2.numpy())
+            vegas_map.adapt(alpha=alpha)
 
         self.register_buffer("y", torch.empty(batchsize, num_input_channels))
         self.register_buffer("grid", torch.Tensor(vegas_map.grid))
@@ -144,6 +157,8 @@ class VegasMap(torch.nn.Module):
                 means_t[torch.arange(0, num_blocks * 2, 2, device=self.y.device)]
                 + means_t[torch.arange(1, num_blocks * 2, 2, device=self.y.device)]
             ) / 2.0
+        print("Final number of blocks: ", num_blocks)
+
         statistic, p_value = kstest(
             means_t.cpu(), "norm", args=(means_t.mean().item(), means_t.std().item())
         )

@@ -21,6 +21,7 @@ from tqdm import tqdm
 from absl import app, flags
 import socket
 
+
 # enable_cuda = True
 # device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
 def get_ip() -> str:
@@ -35,11 +36,12 @@ def get_open_port() -> int:
         return s.getsockname()[1]
 
 
-
 def setup():
     # get IDs of reserved GPU
     distributed_init_method = f"tcp://{get_ip()}:{get_open_port()}"
-    dist.init_process_group(backend="gloo")#, init_method=distributed_init_method, world_size = int(os.environ["WORLD_SIZE"]), rank = int(os.environ["RANK"]))
+    dist.init_process_group(
+        backend="gloo"
+    )  # , init_method=distributed_init_method, world_size = int(os.environ["WORLD_SIZE"]), rank = int(os.environ["RANK"]))
     # init_method='env://',
     # world_size=int(os.environ["WORLD_SIZE"]),
     # rank=int(os.environ['SLURM_PROCID']))
@@ -108,13 +110,13 @@ def train_model_parallel(
 
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
-    for it in (range(max_iter)):
+    for it in range(max_iter):
         start_time = time.time()
 
         optimizer.zero_grad()
         loss_accum = torch.zeros(1, requires_grad=False, device=rank)
         with nfm.no_sync():
-            for _ in range(accum_iter-1):
+            for _ in range(accum_iter - 1):
                 # Compute loss
                 #     if(it<max_iter/2):
                 #         loss = nfm.reverse_kld(num_samples)
@@ -124,13 +126,13 @@ def train_model_parallel(
                     z, _ = nfm_input.q0(num_samples)
                     z = nfm.forward(z.to(rank))
                     loss = nfm_input.IS_forward_kld_direct(z.detach())
-                    #loss = nfm.IS_forward_kld(num_samples)
+                    # loss = nfm.IS_forward_kld(num_samples)
                 else:
                     x = proposal_model.mcmc_sample(sample_interval)
                     z, log_q = nfm.forward(x, rev=True)
                     log_q += nfm_input.q0.log_prob(z)
-                    loss = -torch.mean(log_q) 
-                    #loss = nfm.forward_kld(x)
+                    loss = -torch.mean(log_q)
+                    # loss = nfm.forward_kld(x)
 
                 loss = loss / accum_iter
                 loss_accum += loss
@@ -142,14 +144,14 @@ def train_model_parallel(
             z, _ = nfm_input.q0(num_samples)
             z = nfm.forward(z.to(rank))
             loss = nfm_input.IS_forward_kld_direct(z.detach())
-            #loss = nfm.IS_forward_kld(num_samples)
+            # loss = nfm.IS_forward_kld(num_samples)
         else:
             x = proposal_model.mcmc_sample(sample_interval)
             z, log_q = nfm.forward(x, rev=True)
             log_q += nfm_input.q0.log_prob(z)
-            loss = -torch.mean(log_q) 
-            #loss = nfm.forward_kld(x)
-            
+            loss = -torch.mean(log_q)
+            # loss = nfm.forward_kld(x)
+
         loss = loss / accum_iter
         loss_accum += loss
         # Do backprop and optimizer step
@@ -161,7 +163,7 @@ def train_model_parallel(
         )  # Gradient clipping
         optimizer.step()
 
-        if it % 10 == 0 and global_rank==0:
+        if it % 10 == 0 and global_rank == 0:
             print(
                 f"Iteration {it}, Loss: {loss_accum.item()}, Learning Rate: {optimizer.param_groups[0]['lr']}, Running time: {time.time() - start_time:.3f}s"
             )
@@ -182,7 +184,7 @@ def train_model_parallel(
 
         # save checkpoint
         # if it % 100 == 0 and it > 0 and save_checkpoint:
-        if it % 50 == 0 and save_checkpoint and global_rank==0:
+        if it % 50 == 0 and save_checkpoint and global_rank == 0:
             torch.save(
                 {
                     "model_state_dict": nfm.module.state_dict()
@@ -199,7 +201,7 @@ def train_model_parallel(
             )
 
     # writer.close()
-    if global_rank==0:
+    if global_rank == 0:
         print("training finished \n")
         # print(nfm.flows[0].pvct.grid)
         # print(nfm.flows[0].pvct.inc)
@@ -235,12 +237,11 @@ def train_model_parallel_annealing(
 
     nfm = DDP(nfm_input.to(rank), device_ids=[rank])
 
-    
     nfm.train()  # Set model to training mode
     current_beta = init_beta
     loss_hist = np.array([])
     # writer = SummaryWriter()  # Initialize TensorBoard writer
-    if global_rank==0:
+    if global_rank == 0:
         print("start Annealing training, initial beta = ", init_beta, "\n")
 
     # Initialize optimizer and scheduler
@@ -272,26 +273,26 @@ def train_model_parallel_annealing(
 
     # for name, module in nfm.named_modules():
     #     module.register_backward_hook(lambda module, grad_input, grad_output: hook_fn(module, grad_input, grad_output))
-    for it in (range(max_iter)):
+    for it in range(max_iter):
         start_time = time.time()
-        
+
         optimizer.zero_grad()
 
         loss_accum = torch.zeros(1, requires_grad=False, device=rank)
         with nfm.no_sync():
-            for _ in range(accum_iter-1):
+            for _ in range(accum_iter - 1):
                 # Compute loss
                 if proposal_model is not None and current_beta == final_beta:
                     x = proposal_model.mcmc_sample(sample_interval)
                     z, log_q = nfm.forward(x, rev=True)
                     log_q += nfm_input.q0.log_prob(z)
-                    loss = -torch.mean(log_q) 
-                    #loss = nfm.forward_kld(x)
+                    loss = -torch.mean(log_q)
+                    # loss = nfm.forward_kld(x)
                 else:
                     z, _ = nfm_input.q0(num_samples)
                     z = nfm.forward(z.to(rank))
                     loss = nfm_input.IS_forward_kld_direct(z.detach())
-                    #loss = nfm.IS_forward_kld(num_samples)
+                    # loss = nfm.IS_forward_kld(num_samples)
 
                 loss = loss / accum_iter
                 loss_accum += loss
@@ -303,13 +304,13 @@ def train_model_parallel_annealing(
             x = proposal_model.mcmc_sample(sample_interval)
             z, log_q = nfm.forward(x, rev=True)
             log_q += nfm_input.q0.log_prob(z)
-            loss = -torch.mean(log_q) 
-            #loss = nfm.forward_kld(x)
+            loss = -torch.mean(log_q)
+            # loss = nfm.forward_kld(x)
         else:
             z, _ = nfm_input.q0(num_samples)
             z = nfm.forward(z.to(rank))
             loss = nfm_input.IS_forward_kld_direct(z.detach())
-            #loss = nfm.IS_forward_kld(num_samples)
+            # loss = nfm.IS_forward_kld(num_samples)
 
         loss = loss / accum_iter
         loss_accum += loss
@@ -323,7 +324,7 @@ def train_model_parallel_annealing(
         optimizer.step()
 
         current_lr = optimizer.param_groups[0]["lr"]
-        if it % 10 == 0 and global_rank ==0:
+        if it % 10 == 0 and global_rank == 0:
             print(
                 f"Iteration {it}, beta: {current_beta}, Loss: {loss_accum.item()}, Learning Rate: {current_lr}, Running time: {time.time() - start_time:.3f}s"
             )
@@ -342,7 +343,12 @@ def train_model_parallel_annealing(
 
         # save checkpoint
         # if it > warmup_epochs and (it - warmup_epochs) % 100 == 0 and save_checkpoint:
-        if it > warmup_epochs and scheduler.T_cur == scheduler.T_0 and save_checkpoint and global_rank==0:
+        if (
+            it > warmup_epochs
+            and scheduler.T_cur == scheduler.T_0
+            and save_checkpoint
+            and global_rank == 0
+        ):
             print(
                 f"Saving NF model at the end of a CosineAnnealingWarmRestarts cycle with beta={current_beta}..."
             )
@@ -373,13 +379,15 @@ def train_model_parallel_annealing(
                 # scheduler.T_0 = max_iter - it
                 # scheduler.T_i = max_iter - it
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-                    optimizer, T_0=T_0 * 2, T_mult=2
+                    optimizer, T_0=T_0, T_mult=2
                 )
             nfm.module.p.beta = current_beta / nfm.module.p.EF
-            nfm.module.p.mu = chemical_potential(current_beta, nfm.module.p.dim) * nfm.module.p.EF
+            nfm.module.p.mu = (
+                chemical_potential(current_beta, nfm.module.p.dim) * nfm.module.p.EF
+            )
 
     # Final save
-    if global_rank==0:
+    if global_rank == 0:
         torch.save(
             {
                 "model_state_dict": nfm.module.state_dict()
@@ -391,11 +399,9 @@ def train_model_parallel_annealing(
             },
             f"nfm_o{order}_beta{current_beta}_final.pth",
         )
-        
+
         print(f"Annealing training complete. Final beta: {current_beta}")
         print(loss_hist)
-
-
 
 
 def train_model_parallel_example(

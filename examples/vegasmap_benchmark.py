@@ -27,16 +27,14 @@ integration_domain = [[0, 1]] * dim
 alpha_opt = abs(solution / (solution + 1))
 
 num_adapt_samples = 1000000
-# batchsize = 4096
 batchsize = 32768
 niters = 20
-# nblocks = 2000
-nblocks = 3052 * 4
-therm_steps = 10000
+nblocks = 3052
+therm_steps = 1000
 mu = 0.0
-step_size = 0.044
-type = "gaussian"  # "gaussian" or "uniform"
-# type = "uniform"  # "gaussian" or "uniform"
+step_size = 0.1
+# type = "gaussian"  # "gaussian" or "uniform"
+type = "uniform"  # "gaussian" or "uniform"
 # type = None
 mix_rate = 0.0
 
@@ -137,14 +135,14 @@ def g(y):
     return jac * integrand_eval(x)
 
 
-# # Importance sampling with Vegas map (torch)
-# map_torch = map_torch.to(device)
-# start_time = time.time()
-# mean, std = map_torch.integrate_block(nblocks)
-# print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
-# end_time = time.time()
-# wall_clock_time = end_time - start_time
-# print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
+# Importance sampling with Vegas map (torch)
+map_torch = map_torch.to(device)
+start_time = time.time()
+mean, std = map_torch.integrate_block(nblocks)
+print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
+end_time = time.time()
+wall_clock_time = end_time - start_time
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
 
 # Vegas-map MCMC
 len_chain = nblocks
