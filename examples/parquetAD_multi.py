@@ -30,7 +30,7 @@ num_loops = [2, 6, 15, 39, 111, 448]
 num_roots = [1, 2, 3, 4, 5, 6]
 traced_batchsize = [1000, 10000, 20000, 50000, 100000]
 order = 1
-beta = 1.0
+beta = 32.0
 batch_size = 10000
 num_blocks = 1
 num_hidden_channels = 32
@@ -90,10 +90,10 @@ if is_annealing:
 if has_init_model:
     init_beta = 8.278869401953296
     init_state_dict_path = "nfm_o{0}_beta{1}_checkpoint.pth".format(order, init_beta)
-    # init_state_dict_path = "nfm_beta{0}_checkpoint.pth".format(init_beta)
+    # init_state_dict_path = "nfm_o{0}_final.pth".format(order)
 if has_proposal_nfm:
     sample_interval = 5
-    pmodel_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state1.pt".format(
+    pmodel_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state.pt".format(
         order, beta, num_blocks
     )
 
@@ -594,6 +594,7 @@ def main(argv):
                     init_lr=init_lr,
                     proposal_model=proposal_model,
                     sample_interval=sample_interval,
+                    has_scheduler=1,
                 )
         else:
             print("initial learning rate: ", init_lr)
@@ -638,6 +639,7 @@ def main(argv):
                     accum_iter=accum_iter,
                     init_lr=init_lr,
                     proposal_model=None,
+                    has_scheduler=1,
                 )
         else:
             print("initial learning rate: ", init_lr)

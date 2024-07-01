@@ -538,7 +538,6 @@ def main(argv):
                 max_iter=epochs,
                 num_samples=diagram.batchsize,
                 accum_iter=accum_iter,
-                has_scheduler=True,
                 proposal_model=proposal_model,
                 save_checkpoint=True,
             )
@@ -574,7 +573,6 @@ def main(argv):
                 max_iter=epochs,
                 num_samples=diagram.batchsize,
                 accum_iter=accum_iter,
-                has_scheduler=True,
                 proposal_model=None,
                 save_checkpoint=True,
             )

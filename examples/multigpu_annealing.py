@@ -4,7 +4,6 @@ import numpy as np
 import normflows as nf
 import benchmark
 from scipy.special import erf, gamma
-import vegas
 import time
 import os
 import torch.distributed as dist
@@ -13,11 +12,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from nsf_annealing import chemical_potential
 # from torch.utils.tensorboard import SummaryWriter
 
-from matplotlib import pyplot as plt
 from tqdm import tqdm
-
-# import h5py
-# import idr_torch
 from absl import app, flags
 import socket
 
@@ -58,7 +53,7 @@ def train_model_parallel(
     num_samples=10000,
     accum_iter=10,
     init_lr=8e-3,
-    has_scheduler=True,
+    has_scheduler=1,
     proposal_model=None,
     save_checkpoint=True,
     sample_interval=5,
@@ -90,19 +85,27 @@ def train_model_parallel(
     if global_rank == 0:
         print("start training \n")
 
-    # Initialize optimizer and scheduler
+    # Initialize optimizer
     optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
-    if has_scheduler:
-        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=10, verbose=True
-        )
 
     # Use a learning rate warmup
     warmup_epochs = 10
     scheduler_warmup = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=0.1, total_iters=warmup_epochs
     )
+
+    if has_scheduler == 1:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.5, patience=10, verbose=True
+        )
+    elif has_scheduler == 2:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, max_iter - warmup_epochs
+        )
+    elif has_scheduler == 3:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=(max_iter - warmup_epochs) // 3, T_mult=2
+        )
 
     if proposal_model is not None:
         proposal_model.to(rank)
@@ -171,10 +174,12 @@ def train_model_parallel(
         # Scheduler step after optimizer step
         if it < warmup_epochs:
             scheduler_warmup.step()
-        elif has_scheduler:
+        elif has_scheduler == 1:
             scheduler.step(loss_accum)  # ReduceLROnPlateau
-            # scheduler.step()  # CosineAnnealingLR
-
+        elif has_scheduler == 2:
+            scheduler.step(it - warmup_epochs)  # CosineAnnealingLR
+        elif has_scheduler == 3:
+            scheduler.step(it - warmup_epochs)  # CosineAnnealingWarmRestarts
         # Log loss
         loss_hist.append(loss_accum.item())
 
@@ -183,8 +188,7 @@ def train_model_parallel(
         # writer.add_scalar("Learning Rate", optimizer.param_groups[0]["lr"], it)
 
         # save checkpoint
-        # if it % 100 == 0 and it > 0 and save_checkpoint:
-        if it % 50 == 0 and save_checkpoint and global_rank == 0:
+        if it % 100 == 0 and it > 0 and save_checkpoint and global_rank == 0:
             torch.save(
                 {
                     "model_state_dict": nfm.module.state_dict()
@@ -192,7 +196,7 @@ def train_model_parallel(
                     else nfm.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict()
-                    if has_scheduler
+                    if has_scheduler in [1, 2, 3]
                     else None,
                     "loss_hist": loss_hist,
                 },
@@ -200,12 +204,25 @@ def train_model_parallel(
                 # f"checkpoint_{it}.pth",
             )
 
-    # writer.close()
+    # Final save
     if global_rank == 0:
         print("training finished \n")
         # print(nfm.flows[0].pvct.grid)
         # print(nfm.flows[0].pvct.inc)
         print(loss_hist)
+        torch.save(
+            {
+                "model_state_dict": nfm.module.state_dict()
+                if hasattr(nfm, "module")
+                else nfm.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict()
+                if has_scheduler in [1, 2, 3]
+                else None,
+                "loss_hist": loss_hist,
+            },
+            f"nfm_o{order}_final.pth",
+        )
     cleanup()
 
 

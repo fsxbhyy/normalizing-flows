@@ -40,7 +40,6 @@ has_proposal_nfm = False
 multi_gpu = True
 
 
-
 if order == 1:
     eval_graph = torch.compile(eval_graph100)
 elif order == 2:
@@ -283,8 +282,8 @@ class FeynmanDiagram(nf.distributions.Target):
     @torch.no_grad()
     def prob(self, var):
         self._evalleaf(var)
-        #self.eval_graph(self.root, self.leafvalues)
-        self.root[:] = eval_graph(self.leafvalues) #self.eval_graph(self.leafvalues)
+        # self.eval_graph(self.root, self.leafvalues)
+        self.root[:] = eval_graph(self.leafvalues)  # self.eval_graph(self.leafvalues)
         return self.root.sum(dim=1) * (
             self.factor
             * (self.maxK * 2 * np.pi**2) ** (self.innerLoopNum)
@@ -388,7 +387,6 @@ def main(argv):
                 max_iter=epochs,
                 num_samples=diagram.batchsize,
                 accum_iter=accum_iter,
-                has_scheduler=True,
                 proposal_model=proposal_model,
                 save_checkpoint=True,
             )
@@ -410,7 +408,6 @@ def main(argv):
                 max_iter=epochs,
                 num_samples=diagram.batchsize,
                 accum_iter=accum_iter,
-                has_scheduler=True,
                 proposal_model=None,
                 save_checkpoint=True,
             )
