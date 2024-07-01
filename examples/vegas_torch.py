@@ -244,6 +244,7 @@ class VegasMap(torch.nn.Module):
             histr_weight / num_blocks,
         )
 
+    @torch.no_grad()
     def mcmc(
         self,
         len_chain=1000,
@@ -276,7 +277,6 @@ class VegasMap(torch.nn.Module):
         device = self.y.device
         vars_shape = self.y.shape
         batch_size = vars_shape[0]
-        num_vars = vars_shape[1]
         if burn_in is None:
             burn_in = len_chain // 4
 
@@ -297,22 +297,22 @@ class VegasMap(torch.nn.Module):
         for i in range(burn_in):
             # Propose new samples
             proposed_y[:] = torch.rand(vars_shape, device=device)
-            if type == "gaussian":
-                bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
-                proposed_y[bool_mask, :] = (
-                    self.y[bool_mask, :]
-                    + torch.normal(
-                        mu,
-                        step_size,
-                        size=[bool_mask.sum().item(), num_vars],
-                        device=device,
-                    )
-                ) % 1.0
-            elif type == "uniform":
-                bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
-                proposed_y[bool_mask, :] = (
-                    self.y[bool_mask, :] + (proposed_y[bool_mask, :] - 0.5) * step_size
-                ) % 1.0
+            # if type == "gaussian":
+            #     bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
+            #     proposed_y[bool_mask, :] = (
+            #         self.y[bool_mask, :]
+            #         + torch.normal(
+            #             mu,
+            #             step_size,
+            #             size=[bool_mask.sum().item(), num_vars],
+            #             device=device,
+            #         )
+            #     ) % 1.0
+            # elif type == "uniform":
+            bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
+            proposed_y[bool_mask, :] = (
+                self.y[bool_mask, :] + (proposed_y[bool_mask, :] - 0.5) * step_size
+            ) % 1.0
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
 
@@ -355,22 +355,22 @@ class VegasMap(torch.nn.Module):
         for i in range(len_chain):
             # Propose new samples
             proposed_y[:] = torch.rand(vars_shape, device=device)
-            if type == "gaussian":
-                bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
-                proposed_y[bool_mask, :] = (
-                    self.y[bool_mask, :]
-                    + torch.normal(
-                        mu,
-                        step_size,
-                        size=[bool_mask.sum().item(), num_vars],
-                        device=device,
-                    )
-                ) % 1.0
-            elif type == "uniform":
-                bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
-                proposed_y[bool_mask, :] = (
-                    self.y[bool_mask, :] + (proposed_y[bool_mask, :] - 0.5) * step_size
-                ) % 1.0
+            # if type == "gaussian":
+            #     bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
+            #     proposed_y[bool_mask, :] = (
+            #         self.y[bool_mask, :]
+            #         + torch.normal(
+            #             mu,
+            #             step_size,
+            #             size=[bool_mask.sum().item(), num_vars],
+            #             device=device,
+            #         )
+            #     ) % 1.0
+            # elif type == "uniform":
+            bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
+            proposed_y[bool_mask, :] = (
+                self.y[bool_mask, :] + (proposed_y[bool_mask, :] - 0.5) * step_size
+            ) % 1.0
 
             proposed_samples[:], proposed_qinv[:] = self.forward(proposed_y)
             new_prob[:] = self.target.prob(proposed_samples)

@@ -316,6 +316,7 @@ class NormalizingFlow(nn.Module):
         device = self.p.samples.device
         num_samples = self.p.batchsize
         means_t = torch.zeros(num_blocks, device=device)
+        means_abs = torch.empty_like(means_t)
         # Pre-allocate tensor for storing means and histograms
         # num_vars = self.p.ndims
         # with torch.device("cpu"):
@@ -336,6 +337,7 @@ class NormalizingFlow(nn.Module):
             q = torch.exp(self.p.log_q)
             res = self.p.val / q
             means_t[i] = torch.mean(res, dim=0)
+            means_abs[i] = torch.mean(res.abs(), dim=0)
 
             partition_z += torch.mean(torch.abs(self.p.val) / q, dim=0)
             # log_p = torch.log(torch.clamp(prob_abs, min=1e-16))
@@ -378,13 +380,31 @@ class NormalizingFlow(nn.Module):
                 means_t[torch.arange(0, num_blocks * 2, 2, device=device)]
                 + means_t[torch.arange(1, num_blocks * 2, 2, device=device)]
             ) / 2.0
+            means_abs = (
+                means_abs[torch.arange(0, num_blocks * 2, 2, device=device)]
+                + means_abs[torch.arange(1, num_blocks * 2, 2, device=device)]
+            ) / 2.0
         print("new block number: ", num_blocks)
+
         statistic, p_value = kstest(
             means_t.cpu(), "norm", args=(means_t.mean().item(), means_t.std().item())
         )
         print(f"K-S test: statistic {statistic}, p-value {p_value}.")
+
         mean_combined = torch.mean(means_t)
         error_combined = torch.std(means_t) / num_blocks**0.5
+
+        mean_abs = means_abs.mean().item()
+        std_abs = means_abs.std().item()
+        statistic, p_value = kstest(
+            means_abs.cpu(),
+            "norm",
+            args=(mean_abs, std_abs),
+        )
+        print(
+            f"K-S test for absolute values: statistic {statistic}, p-value {p_value}."
+        )
+        print(f"Integrated |f|: Mean: {mean_abs}, std: {std_abs/num_blocks**0.5}.")
 
         return (
             mean_combined,

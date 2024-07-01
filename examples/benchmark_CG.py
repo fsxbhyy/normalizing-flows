@@ -10,7 +10,7 @@ from memory_profiler import memory_usage
 enable_cuda = True
 device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
 
-max_order = 6
+max_order = 5
 beta = 10.0
 batch_size = 10000
 Neval = 20
@@ -145,4 +145,5 @@ def benchmark_graph(batch_size, Neval):
 if __name__ == "__main__":
     for o in range(1, max_order + 1):
         benchmark_diagram(o, beta, batch_size)
+    # benchmark_diagram(6, beta, batch_size)
     # benchmark_graph(batch_size, Neval)
