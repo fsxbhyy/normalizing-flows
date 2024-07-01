@@ -128,14 +128,16 @@ class VegasMap(torch.nn.Module):
         num_vars = self.y.shape[1]
         # Pre-allocate tensor for storing means and histograms
         means_t = torch.empty(num_blocks, device=self.y.device)
+        means_abs = torch.empty_like(means_t)
 
         # Loop to fill the tensor with mean values
         for i in range(num_blocks):
             self.y[:] = torch.rand(num_samples, num_vars, device=self.y.device)
             self.x[:], self.jac[:] = self.forward(self.y)
 
-            res = torch.Tensor(self.target.prob(self.x)) * self.jac
+            res = self.target.prob(self.x) * self.jac
             means_t[i] = torch.mean(res, dim=0)
+            means_abs[i] = torch.mean(res.abs(), dim=0)
 
         while (
             kstest(
@@ -157,6 +159,10 @@ class VegasMap(torch.nn.Module):
                 means_t[torch.arange(0, num_blocks * 2, 2, device=self.y.device)]
                 + means_t[torch.arange(1, num_blocks * 2, 2, device=self.y.device)]
             ) / 2.0
+            means_abs = (
+                means_abs[torch.arange(0, num_blocks * 2, 2, device=self.y.device)]
+                + means_abs[torch.arange(1, num_blocks * 2, 2, device=self.y.device)]
+            ) / 2.0
         print("Final number of blocks: ", num_blocks)
 
         statistic, p_value = kstest(
@@ -167,6 +173,18 @@ class VegasMap(torch.nn.Module):
         # Compute mean and standard deviation directly on the tensor
         mean_combined = torch.mean(means_t)
         std_combined = torch.std(means_t) / num_blocks**0.5
+
+        mean_abs = means_abs.mean().item()
+        std_abs = means_abs.std().item()
+        statistic, p_value = kstest(
+            means_abs.cpu(),
+            "norm",
+            args=(mean_abs, std_abs),
+        )
+        print(
+            f"K-S test for absolute values: statistic {statistic}, p-value {p_value}."
+        )
+        print(f"Integrated |f|: Mean: {mean_abs}, std: {std_abs/num_blocks**0.5}.")
 
         return (
             mean_combined,
@@ -196,7 +214,7 @@ class VegasMap(torch.nn.Module):
             self.y[:] = torch.rand(num_samples, num_vars, device=self.y.device)
             self.x[:], self.jac[:] = self.forward(self.y)
 
-            res = torch.Tensor(self.target.prob(self.x)) * self.jac
+            res = self.target.prob(self.x) * self.jac
             means_t[i] = torch.mean(res, dim=0)
 
             z = self.x.detach().cpu()
