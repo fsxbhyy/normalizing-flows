@@ -12,15 +12,17 @@ device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "
 
 root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
 num_loops = [2, 6, 15, 39, 111, 448]
-order = 2
-beta = 16.0
+order = 5
+beta = 32.0
 solution = 0.23  # order 2
 
 nfm_batchsize = 50000
-batch_size = 32768
-len_chain = 3052
+# batch_size = 32768
+batch_size = 20000
+# len_chain = 3052
+len_chain = 1000
 therm_steps = len_chain // 2
-step_size = 0.01
+step_size = 0.1
 mix_rate = 0.1
 
 alpha_opt = abs(solution / (solution + 1))
@@ -34,7 +36,7 @@ if mix_rate != 1.0:
 print("\n")
 
 num_hidden_layers = 1
-model_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state1.pt".format(
+model_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state.pt".format(
     order, beta, num_hidden_layers
 )
 # model_state_dict_path = "nfm_o{0}_beta{1}_state_l2c32b8_anneal.pt".format(order, beta)

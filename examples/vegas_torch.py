@@ -2,8 +2,7 @@ import torch
 import vegas
 from warnings import warn
 from scipy.stats import kstest
-import sys
-import os
+import time
 import traceback
 
 
@@ -281,6 +280,7 @@ class VegasMap(torch.nn.Module):
             burn_in = len_chain // 4
 
         # Initialize chains
+        start_time = time.time()
         self.y[:] = torch.rand(vars_shape, device=device)
         current_samples, current_qinv = self.forward(self.y)
         current_weight = alpha / current_qinv + (1 - alpha) * torch.abs(
@@ -294,6 +294,10 @@ class VegasMap(torch.nn.Module):
         new_weight = torch.empty(batch_size, device=device)
 
         bool_mask = torch.zeros(batch_size, device=device, dtype=torch.bool)
+        print("Initialziation time: ", time.time() - start_time)
+
+        # burn-in
+        start_time = time.time()
         for i in range(burn_in):
             # Propose new samples
             proposed_y[:] = torch.rand(vars_shape, device=device)
@@ -342,6 +346,7 @@ class VegasMap(torch.nn.Module):
                 else:
                     step_size *= 1.1
         print("Adjusted step size: ", step_size)
+        print("Burn-in time: ", time.time() - start_time)
 
         current_prob = self.target.prob(current_samples)
         new_prob = torch.empty_like(current_prob)
@@ -352,6 +357,8 @@ class VegasMap(torch.nn.Module):
         var_q = torch.zeros_like(values)
         cov_pq = torch.zeros_like(values)
         num_measure = 0
+
+        start_time = time.time()
         for i in range(len_chain):
             # Propose new samples
             proposed_y[:] = torch.rand(vars_shape, device=device)
@@ -408,11 +415,21 @@ class VegasMap(torch.nn.Module):
         var_p /= num_measure
         var_q /= num_measure
         cov_pq /= num_measure
-        total_num_measure = num_measure * batch_size
+        print("MCMC with measurement time: ", time.time() - start_time)
 
+        # Statistical analysis
+        print("Start statistical analysis...")
+        start_time = time.time()
+        total_num_measure = num_measure * batch_size
         while (
             kstest(
                 values.cpu(), "norm", args=(values.mean().item(), values.std().item())
+            )[1]
+            < 0.05
+            or kstest(
+                ref_values.cpu(),
+                "norm",
+                args=(ref_values.mean().item(), ref_values.std().item()),
             )[1]
             < 0.05
         ):
@@ -523,6 +540,8 @@ class VegasMap(torch.nn.Module):
                 (var_pq_mean / total_num_measure).item() ** 0.5
             )
         )
+
+        print("Statistical analysis time: ", time.time() - start_time)
 
         if adaptive:
             return ratio_mean, ratio_err, step_size

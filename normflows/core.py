@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from warnings import warn
 from scipy.stats import kstest
+import time
 
 from . import distributions
 from . import utils
@@ -359,6 +360,9 @@ class NormalizingFlow(nn.Module):
             #     )
             #     histr_weight[:, d] += hist
         partition_z /= num_blocks
+
+        print("Start statistical analysis...")
+        start_time = time.time()
         # while calculate_correlation(means_t) > correlation_threshold:
         while (
             kstest(
@@ -406,6 +410,7 @@ class NormalizingFlow(nn.Module):
         )
         print(f"Integrated |f|: Mean: {mean_abs}, std: {std_abs/num_blocks**0.5}.")
 
+        print("Statistical analysis time: ", time.time() - start_time)
         return (
             mean_combined,
             error_combined,
@@ -548,6 +553,7 @@ class NormalizingFlow(nn.Module):
             burn_in = len_chain // 4
 
         # Initialize chains
+        start_time = time.time()
         proposed_z = torch.empty(vars_shape, device=device)
         proposed_samples = torch.empty(vars_shape, device=device)
         proposed_log_q = torch.empty(batch_size, device=device)
@@ -567,6 +573,10 @@ class NormalizingFlow(nn.Module):
         accept = torch.empty(batch_size, device=device, dtype=torch.bool)
 
         bool_mask = torch.zeros(batch_size, device=device, dtype=torch.bool)
+        print("Initialization time: ", time.time() - start_time)
+
+        # burn-in
+        start_time = time.time()
         for i in range(burn_in):
             # Propose new samples using the normalizing flow
             bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
@@ -609,8 +619,9 @@ class NormalizingFlow(nn.Module):
                 else:
                     step_size *= 1.1
         print("Adjusted step size: ", step_size)
+        print("Burn-in time: ", time.time() - start_time)
 
-        self.p.val = self.p.prob(self.p.samples)
+        self.p.val[:] = self.p.prob(self.p.samples)
         new_prob = torch.empty_like(self.p.val)
 
         ref_values = torch.zeros(batch_size, device=device)
@@ -620,6 +631,8 @@ class NormalizingFlow(nn.Module):
         var_q = torch.zeros(batch_size, device=device)
         cov_pq = torch.zeros(batch_size, device=device)
         num_measure = 0
+
+        start_time = time.time()
         for i in range(len_chain):
             # Propose new samples using the normalizing flow
             bool_mask[:] = torch.rand(batch_size, device=device) > mix_rate
@@ -674,8 +687,12 @@ class NormalizingFlow(nn.Module):
         var_p /= num_measure
         var_q /= num_measure
         cov_pq /= num_measure
-        total_num_measure = num_measure * batch_size
+        print("MCMC with measurement time: ", time.time() - start_time)
 
+        # Statistical analysis
+        print("Start statistical analysis...")
+        start_time = time.time()
+        total_num_measure = num_measure * batch_size
         while (
             kstest(
                 values.cpu(), "norm", args=(values.mean().item(), values.std().item())
@@ -791,6 +808,8 @@ class NormalizingFlow(nn.Module):
                 (var_pq_mean / total_num_measure).item() ** 0.5
             )
         )
+
+        print("Statistical analysis time: ", time.time() - start_time)
 
         if adaptive:
             return ratio_mean, ratio_err, step_size
