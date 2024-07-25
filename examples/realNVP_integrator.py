@@ -67,7 +67,7 @@ def generate_model(
             flows += [nf.flows.MaskedAffineFlow(b, t, s)]
         else:
             flows += [nf.flows.MaskedAffineFlow(1 - b, t, s)]
-        flows += [nf.flows.ActNorm(latent_size)]
+        #flows += [nf.flows.ActNorm(latent_size)]
 
     # for i in range(num_layers):
     #     param_map = nf.nets.MLP([ndims, 4 * ndims, 4 * ndims, ndims], init_zeros=True)
@@ -93,7 +93,7 @@ def train_model(
     max_iter=1000,
     num_samples=10000,
     accum_iter=10,
-    init_lr=8e-3,
+    init_lr=1e-4,
     has_scheduler=True,
     proposal_model=None,
     save_checkpoint=True,
@@ -280,10 +280,10 @@ def train_model_annealing(
         optimizer.step()
 
         # Scheduler step after optimizer step
-        if it < warmup_epochs:
-            scheduler_warmup.step()
-        else:
-            scheduler.step(loss_accum)  # ReduceLROnPlateau
+        # if it < warmup_epochs:
+        #     scheduler_warmup.step()
+        # else:
+        #     scheduler.step(loss_accum)  # ReduceLROnPlateau
             # scheduler.step()  # CosineAnnealingLR
 
         # Log loss

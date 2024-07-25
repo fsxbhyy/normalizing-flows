@@ -193,6 +193,7 @@ class MaskedAffineFlow(Flow):
           s: scale mapping, i.e. neural network, where first input dimension is batch dim, if None no scale is applied
         """
         super().__init__()
+        #print(f"test: {b} {b.view(1, *b.size())}\n")
         self.b_cpu = b.view(1, *b.size())
         self.register_buffer("b", self.b_cpu)
 
@@ -208,11 +209,13 @@ class MaskedAffineFlow(Flow):
 
     def forward(self, z):
         z_masked = self.b * z
+       
         scale = self.s(z_masked)
         nan = torch.tensor(np.nan, dtype=z.dtype, device=z.device)
         scale = torch.where(torch.isfinite(scale), scale, nan)
         trans = self.t(z_masked)
         trans = torch.where(torch.isfinite(trans), trans, nan)
+        #print(f"test:{self.b} {z} {z_masked} {scale}\n")
         z_ = z_masked + (1 - self.b) * (z * torch.exp(scale) + trans)
         log_det = torch.sum((1 - self.b) * scale, dim=list(range(1, self.b.dim())))
         return z_, log_det

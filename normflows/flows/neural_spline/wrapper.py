@@ -7,6 +7,7 @@ from .coupling import (
     PiecewiseRationalQuadraticCoupling,
     PiecewiseLinearCoupling,
     PieceWiseVegasCoupling,
+    PiecewiseRationalQuadraticCouplingFixWidth,
 )
 from .autoregressive import MaskedPiecewiseRationalQuadraticAutoregressive
 from ...nets.resnet import ResidualNet, Dense
@@ -120,6 +121,7 @@ class CoupledRationalQuadraticSpline(Flow):
         num_input_channels,
         num_blocks,
         num_hidden_channels,
+        init_width = None,
         num_context_channels=None,
         num_bins=8,
         tails=None,  # "linear",
@@ -172,16 +174,29 @@ class CoupledRationalQuadraticSpline(Flow):
             )
         else:
             mask_input = mask
-        self.prqct = PiecewiseRationalQuadraticCoupling(
-            mask=mask_input,
-            transform_net_create_fn=transform_net_create_fn,
-            num_bins=num_bins,
-            tails=tails,
-            tail_bound=tail_bound,
-            # Setting True corresponds to equations (4), (5), (6) in the NSF paper:
-            apply_unconditional_transform=True,
-            # min_bin_height=1e-6,
-        )
+        if init_width == None:
+            self.prqct = PiecewiseRationalQuadraticCoupling(
+                mask=mask_input,
+                transform_net_create_fn=transform_net_create_fn,
+                num_bins=num_bins,
+                tails=tails,
+                tail_bound=tail_bound,
+                # Setting True corresponds to equations (4), (5), (6) in the NSF paper:
+                apply_unconditional_transform=True,
+                # min_bin_height=1e-6,
+            )
+        else:
+            self.prqct = PiecewiseRationalQuadraticCouplingFixWidth(
+                mask=mask_input,
+                transform_net_create_fn=transform_net_create_fn,
+                init_width = init_width,
+                num_bins=num_bins,
+                tails=tails,
+                tail_bound=tail_bound,
+                # Setting True corresponds to equations (4), (5), (6) in the NSF paper:
+                apply_unconditional_transform=True,
+                # min_bin_height=1e-6,
+            )
 
     def forward(self, z, context=None):
         z, log_det = self.prqct.inverse(z, context)
