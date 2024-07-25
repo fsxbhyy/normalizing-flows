@@ -34,14 +34,14 @@ traced_batchsize = [1000, 10000, 20000, 50000, 100000]
 
 order = int(sys.argv[1])
 beta = 10.0
-batch_size = 50000
+batch_size = 10000
 num_blocks = 2
 num_hidden_channels = 32
 num_bins = 8
 accum_iter = 1
 
 init_lr = 8e-3
-Nepochs = 20
+Nepochs = 100
 Nblocks = 400
 
 # is_save = True

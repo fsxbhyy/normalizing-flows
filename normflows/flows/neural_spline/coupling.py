@@ -529,6 +529,7 @@ class PiecewiseRationalQuadraticCDF(Flow):
         return self._spline(inputs, inverse=True)
 
 
+
 class PiecewiseRationalQuadraticCoupling(PiecewiseCoupling):
     def __init__(
         self,
@@ -600,6 +601,208 @@ class PiecewiseRationalQuadraticCoupling(PiecewiseCoupling):
         unnormalized_heights = transform_params[..., self.num_bins : 2 * self.num_bins]
         unnormalized_derivatives = transform_params[..., 2 * self.num_bins :]
 
+        if hasattr(self.transform_net, "hidden_features"):
+            unnormalized_widths /= np.sqrt(self.transform_net.hidden_features)
+            unnormalized_heights /= np.sqrt(self.transform_net.hidden_features)
+        elif hasattr(self.transform_net, "hidden_channels"):
+            unnormalized_widths /= np.sqrt(self.transform_net.hidden_channels)
+            unnormalized_heights /= np.sqrt(self.transform_net.hidden_channels)
+        else:
+            warnings.warn(
+                "Inputs to the softmax are not scaled down: initialization might be bad."
+            )
+
+        if self.tails is None:
+            spline_fn = splines.rational_quadratic_spline
+            spline_kwargs = {}
+        else:
+            spline_fn = splines.unconstrained_rational_quadratic_spline
+            spline_kwargs = {"tails": self.tails, "tail_bound": self.tail_bound}
+
+        # print("width:", unnormalized_widths)
+        # print("height:", unnormalized_heights)
+        # print("derivatives:", unnormalized_derivatives)
+        return spline_fn(
+            inputs=inputs,
+            unnormalized_widths=unnormalized_widths,
+            unnormalized_heights=unnormalized_heights,
+            unnormalized_derivatives=unnormalized_derivatives,
+            inverse=inverse,
+            min_bin_width=self.min_bin_width,
+            min_bin_height=self.min_bin_height,
+            min_derivative=self.min_derivative,
+            **spline_kwargs,
+        )
+
+
+
+class PiecewiseRationalQuadraticFixWidthCDF(Flow):
+    def __init__(
+        self,
+        shape,
+        num_bins=10,
+        tails=None,
+        tail_bound=1.0,
+        identity_init=True,
+        min_bin_width=splines.DEFAULT_MIN_BIN_WIDTH,
+        min_bin_height=splines.DEFAULT_MIN_BIN_HEIGHT,
+        min_derivative=splines.DEFAULT_MIN_DERIVATIVE,
+    ):
+        super().__init__()
+
+        self.min_bin_width = min_bin_width
+        self.min_bin_height = min_bin_height
+        self.min_derivative = min_derivative
+
+        if torch.is_tensor(tail_bound):
+            self.register_buffer("tail_bound", tail_bound)
+        else:
+            self.tail_bound = tail_bound
+        self.tails = tails
+
+        if self.tails == "linear":
+            num_derivatives = num_bins - 1
+        elif self.tails == "circular":
+            num_derivatives = num_bins
+        else:
+            num_derivatives = num_bins + 1
+
+        if identity_init:
+            self.unnormalized_widths = nn.Parameter(torch.zeros(*shape, num_bins))
+            self.unnormalized_heights = nn.Parameter(torch.zeros(*shape, num_bins))
+
+            constant = np.log(np.exp(1 - min_derivative) - 1)
+            self.unnormalized_derivatives = nn.Parameter(
+                constant * torch.ones(*shape, num_derivatives)
+            )
+        else:
+            self.unnormalized_widths = nn.Parameter(torch.rand(*shape, num_bins))
+            self.unnormalized_heights = nn.Parameter(torch.rand(*shape, num_bins))
+
+            self.unnormalized_derivatives = nn.Parameter(
+                torch.rand(*shape, num_derivatives)
+            )
+
+    @staticmethod
+    def _share_across_batch(params, batch_size):
+        return params[None, ...].expand(batch_size, *params.shape)
+
+    def _spline(self, inputs, inverse=False):
+        batch_size = inputs.shape[0]
+
+        unnormalized_widths = self._share_across_batch(
+            self.unnormalized_widths, batch_size
+        )
+        unnormalized_heights = self._share_across_batch(
+            self.unnormalized_heights, batch_size
+        )
+        unnormalized_derivatives = self._share_across_batch(
+            self.unnormalized_derivatives, batch_size
+        )
+
+        if self.tails is None:
+            spline_fn = splines.rational_quadratic_spline
+            spline_kwargs = {}
+        else:
+            spline_fn = splines.unconstrained_rational_quadratic_spline
+            spline_kwargs = {"tails": self.tails, "tail_bound": self.tail_bound}
+
+        outputs, logabsdet = spline_fn(
+            inputs=inputs,
+            unnormalized_widths=unnormalized_widths,
+            unnormalized_heights=unnormalized_heights,
+            unnormalized_derivatives=unnormalized_derivatives,
+            inverse=inverse,
+            min_bin_width=self.min_bin_width,
+            min_bin_height=self.min_bin_height,
+            min_derivative=self.min_derivative,
+            **spline_kwargs,
+        )
+
+        return outputs, utils.sum_except_batch(logabsdet)
+
+    def forward(self, inputs, context=None):
+        return self._spline(inputs, inverse=False)
+
+    def inverse(self, inputs, context=None):
+        return self._spline(inputs, inverse=True)
+
+
+
+class PiecewiseRationalQuadraticCouplingFixWidth(PiecewiseCoupling):
+    def __init__(
+        self,
+        mask,
+        transform_net_create_fn,
+        init_width,
+        num_bins=10,
+        tails=None,
+        tail_bound=1.0,
+        apply_unconditional_transform=False,
+        img_shape=None,
+        min_bin_width = splines.DEFAULT_MIN_BIN_WIDTH,
+        min_bin_height=splines.DEFAULT_MIN_BIN_HEIGHT,
+        min_derivative=splines.DEFAULT_MIN_DERIVATIVE,
+    ):
+        self.num_bins = num_bins
+        self.unnormalized_widths = init_width
+        self.min_bin_width = min_bin_width
+        self.min_bin_height = min_bin_height
+        self.min_derivative = min_derivative
+
+        # Split tails parameter if needed
+        features_vector = torch.arange(len(mask))
+        identity_features = features_vector.masked_select(mask <= 0)
+        transform_features = features_vector.masked_select(mask > 0)
+        if isinstance(tails, list) or isinstance(tails, tuple):
+            self.tails = [tails[i] for i in transform_features]
+            tails_ = [tails[i] for i in identity_features]
+        else:
+            self.tails = tails
+            tails_ = tails
+
+        if torch.is_tensor(tail_bound):
+            tail_bound_ = tail_bound[identity_features]
+        else:
+            self.tail_bound = tail_bound
+            tail_bound_ = tail_bound
+
+        if apply_unconditional_transform:
+            unconditional_transform = lambda features: PiecewiseRationalQuadraticFixWidthCDF(
+                shape=[features] + (img_shape if img_shape else []),
+                num_bins=num_bins,
+                tails=tails_,
+                tail_bound=tail_bound_,
+                min_bin_width=min_bin_width,
+                min_bin_height=min_bin_height,
+                min_derivative=min_derivative,
+            )
+        else:
+            unconditional_transform = None
+
+        super().__init__(
+            mask,
+            transform_net_create_fn,
+            unconditional_transform=unconditional_transform,
+        )
+
+        if torch.is_tensor(tail_bound):
+            self.register_buffer("tail_bound", tail_bound[transform_features])
+
+    def _transform_dim_multiplier(self):
+        if self.tails == "linear":
+            return self.num_bins * 2 - 1
+        elif self.tails == "circular":
+            return self.num_bins * 2
+        else:
+            return self.num_bins * 2 + 1
+
+    def _piecewise_cdf(self, inputs, transform_params, inverse=False):
+        #if init_width == None 
+        unnormalized_widths = self.unnormalized_widths
+        unnormalized_heights = transform_params[..., :self.num_bins ]
+        unnormalized_derivatives = transform_params[..., self.num_bins :]
+        assert  unnormalized_widths.shape ==  unnormalized_heights.shape, f"{unnormalized_widths.shape}, { unnormalized_heights.shape}\n"
         if hasattr(self.transform_net, "hidden_features"):
             unnormalized_widths /= np.sqrt(self.transform_net.hidden_features)
             unnormalized_heights /= np.sqrt(self.transform_net.hidden_features)
