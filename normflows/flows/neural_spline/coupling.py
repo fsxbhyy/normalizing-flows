@@ -178,20 +178,37 @@ class PieceWiseVegasCoupling(nn.Module):
         num_input_channels,
         integration_region,
         batchsize,
+        num_adapt_samples=1000000,
         num_increments=1000,
         niters=20,
+        alpha=1.0,
     ):
         super().__init__()
 
         vegas_map = AdaptiveMap(integration_region, ninc=num_increments)
-        y = np.random.uniform(0.0, 1.0, (batchsize, num_input_channels))
-        vegas_map.adapt_to_samples(y, func(y), nitn=niters)
+        nblock = num_adapt_samples // batchsize
+        num_adapt_samples = nblock * batchsize
+        y_np = np.random.uniform(0.0, 1.0, (num_adapt_samples, num_input_channels))
+        fx = torch.empty(num_adapt_samples, dtype=torch.float64)
 
-        self.register_buffer("y", torch.Tensor(y))
+        x = torch.empty(num_adapt_samples, num_input_channels, dtype=torch.float64)
+        jac = torch.empty(num_adapt_samples, dtype=torch.float64)
+        f2 = torch.empty(num_adapt_samples, dtype=torch.float64)
+        for _ in range(niters):
+            vegas_map.map(y_np, x.numpy(), jac.numpy())
+            for i in range(nblock):
+                fx[i * batchsize : (i + 1) * batchsize] = func(
+                    x[i * batchsize : (i + 1) * batchsize]
+                )
+            f2 = (jac * fx) ** 2
+            vegas_map.add_training_data(y_np, f2.numpy())
+            vegas_map.adapt(alpha=alpha)
+
+        self.register_buffer("y", torch.empty(batchsize, num_input_channels))
         self.register_buffer("grid", torch.Tensor(vegas_map.grid))
         self.register_buffer("inc", torch.Tensor(vegas_map.inc))
         self.register_buffer("dim", torch.tensor(num_input_channels))
-        self.register_buffer("x", torch.empty_like(self.y))
+        self.register_buffer("x", torch.empty(batchsize, num_input_channels))
         self.register_buffer("jac", torch.ones(batchsize))
         if num_increments < 1000:
             self.register_buffer("ninc", torch.tensor(1000))
@@ -204,28 +221,32 @@ class PieceWiseVegasCoupling(nn.Module):
         iy = torch.floor(y_ninc).long()
         dy_ninc = y_ninc - iy
 
-        self.jac.fill_(1.0)
+        x = torch.empty_like(y)
+        jac = torch.ones(y.shape[0], device=x.device)
+        # self.jac.fill_(1.0)
         for d in range(self.dim):
             # Handle the case where iy < ninc
             mask = iy[:, d] < self.ninc
             if mask.any():
-                self.x[mask, d] = (
+                x[mask, d] = (
                     self.grid[d, iy[mask, d]]
                     + self.inc[d, iy[mask, d]] * dy_ninc[mask, d]
                 )
-                self.jac[mask] *= self.inc[d, iy[mask, d]] * self.ninc
+                jac[mask] *= self.inc[d, iy[mask, d]] * self.ninc
 
             # Handle the case where iy >= ninc
             mask_inv = ~mask
             if mask_inv.any():
-                self.x[mask_inv, d] = self.grid[d, self.ninc]
-                self.jac[mask_inv] *= self.inc[d, self.ninc - 1] * self.ninc
+                x[mask_inv, d] = self.grid[d, self.ninc]
+                jac[mask_inv] *= self.inc[d, self.ninc - 1] * self.ninc
 
-        return self.x, torch.log(self.jac)
+        return x, torch.log(jac)
 
     @torch.no_grad()
     def inverse(self, x):
-        self.jac.fill_(1.0)
+        # self.jac.fill_(1.0)
+        y = torch.empty_like(x)
+        jac = torch.ones(x.shape[0], device=x.device)
         for d in range(self.dim):
             iy = torch.searchsorted(self.grid[d, :], x[:, d].contiguous(), right=True)
 
@@ -236,81 +257,81 @@ class PieceWiseVegasCoupling(nn.Module):
             # Handle valid range (0 < iy <= self.ninc)
             if mask_valid.any():
                 iyi_valid = iy[mask_valid] - 1
-                self.y[mask_valid, d] = (
+                y[mask_valid, d] = (
                     iyi_valid
                     + (x[mask_valid, d] - self.grid[d, iyi_valid])
                     / self.inc[d, iyi_valid]
                 ) / self.ninc
-                self.jac[mask_valid] *= self.inc[d, iyi_valid] * self.ninc
+                jac[mask_valid] *= self.inc[d, iyi_valid] * self.ninc
 
             # Handle lower bound (iy <= 0)\
             if mask_lower.any():
-                self.y[mask_lower, d] = 0.0
-                self.jac[mask_lower] *= self.inc[d, 0] * self.ninc
+                y[mask_lower, d] = 0.0
+                jac[mask_lower] *= self.inc[d, 0] * self.ninc
 
             # Handle upper bound (iy > self.ninc)
             if mask_upper.any():
-                self.y[mask_upper, d] = 1.0
-                self.jac[mask_upper] *= self.inc[d, self.ninc - 1] * self.ninc
+                y[mask_upper, d] = 1.0
+                jac[mask_upper] *= self.inc[d, self.ninc - 1] * self.ninc
 
-        return self.y, torch.log(1 / self.jac)
+        return y, torch.log(1.0 / jac)
 
+    # @torch.no_grad()
+    # def forward(self, y):
+    #     y_ninc = y * self.ninc
+    #     iy = torch.floor(y_ninc).long()
+    #     dy_ninc = y_ninc - iy
 
-# class PieceWiseVegasCoupling(nn.Module):
-#     def __init__(
-#         self,
-#         func,
-#         num_input_channels,
-#         integration_region,
-#         batchsize,
-#         apply_unconditional_transform=False,
-#     ):
-#         super().__init__()
+    #     self.jac.fill_(1.0)
+    #     for d in range(self.dim):
+    #         # Handle the case where iy < ninc
+    #         mask = iy[:, d] < self.ninc
+    #         if mask.any():
+    #             self.x[mask, d] = (
+    #                 self.grid[d, iy[mask, d]]
+    #                 + self.inc[d, iy[mask, d]] * dy_ninc[mask, d]
+    #             )
+    #             self.jac[mask] *= self.inc[d, iy[mask, d]] * self.ninc
 
-#         self.integration_region = integration_region
-#         self.apply_unconditional_transform = apply_unconditional_transform
+    #         # Handle the case where iy >= ninc
+    #         mask_inv = ~mask
+    #         if mask_inv.any():
+    #             self.x[mask_inv, d] = self.grid[d, self.ninc]
+    #             self.jac[mask_inv] *= self.inc[d, self.ninc - 1] * self.ninc
 
-#         if apply_unconditional_transform:
-#             self.unconditional_transform = lambda: PieceWiseVegasCDF(
-#                 func=func,
-#                 num_input_channels=num_input_channels,
-#                 integration_region=integration_region,
-#                 batchsize=batchsize,
-#             )
-#         else:
-#             self.unconditional_transform = None
+    #     return self.x, torch.log(self.jac)
 
-#         # self.transform_net = nn.Sequential(
-#         #     nn.Linear(num_input_channels, num_input_channels * 2),
-#         #     nn.ReLU(),
-#         #     nn.Linear(num_input_channels * 2, num_input_channels * 2),
-#         # )
+    # @torch.no_grad()
+    # def inverse(self, x):
+    #     self.jac.fill_(1.0)
+    #     for d in range(self.dim):
+    #         iy = torch.searchsorted(self.grid[d, :], x[:, d].contiguous(), right=True)
 
-#     def forward(self, inputs, context=None):
-#         return self._piecewise_vegas(inputs, inverse=False, context=context)
+    #         mask_valid = (iy > 0) & (iy <= self.ninc)
+    #         mask_lower = iy <= 0
+    #         mask_upper = iy > self.ninc
 
-#     def inverse(self, inputs, context=None):
-#         return self._piecewise_vegas(inputs, inverse=True, context=context)
+    #         # Handle valid range (0 < iy <= self.ninc)
+    #         if mask_valid.any():
+    #             iyi_valid = iy[mask_valid] - 1
+    #             self.y[mask_valid, d] = (
+    #                 iyi_valid
+    #                 + (x[mask_valid, d] - self.grid[d, iyi_valid])
+    #                 / self.inc[d, iyi_valid]
+    #             ) / self.ninc
+    #             self.jac[mask_valid] *= self.inc[d, iyi_valid] * self.ninc
 
-#     def _piecewise_vegas(self, inputs, inverse=False, context=None):
-#         transform_features = inputs
-#         identity_features = inputs
+    #         # Handle lower bound (iy <= 0)\
+    #         if mask_lower.any():
+    #             self.y[mask_lower, d] = 0.0
+    #             self.jac[mask_lower] *= self.inc[d, 0] * self.ninc
 
-#         transform_params = self.transform_net(transform_features)
-#         if self.unconditional_transform:
-#             transform_params = self.unconditional_transform()
+    #         # Handle upper bound (iy > self.ninc)
+    #         if mask_upper.any():
+    #             self.y[mask_upper, d] = 1.0
+    #             self.jac[mask_upper] *= self.inc[d, self.ninc - 1] * self.ninc
 
-#         outputs, logabsdet = PieceWiseVegasCDF(
-#             num_input_channels=transform_features.shape[1],
-#             integration_region=self.integration_region,
-#         ).forward(transform_params)
-
-#         if inverse:
-#             outputs = torch.cat([identity_features, outputs], dim=-1)
-#         else:
-#             outputs = torch.cat([outputs, identity_features], dim=-1)
-
-#         return outputs, logabsdet
+    #     return self.y, torch.log(1 / self.jac)
 
 
 class PiecewiseLinearCDF(Flow):
@@ -529,7 +550,6 @@ class PiecewiseRationalQuadraticCDF(Flow):
         return self._spline(inputs, inverse=True)
 
 
-
 class PiecewiseRationalQuadraticCoupling(PiecewiseCoupling):
     def __init__(
         self,
@@ -635,7 +655,6 @@ class PiecewiseRationalQuadraticCoupling(PiecewiseCoupling):
         )
 
 
-
 class PiecewiseRationalQuadraticFixWidthCDF(Flow):
     def __init__(
         self,
@@ -728,7 +747,6 @@ class PiecewiseRationalQuadraticFixWidthCDF(Flow):
         return self._spline(inputs, inverse=True)
 
 
-
 class PiecewiseRationalQuadraticCouplingFixWidth(PiecewiseCoupling):
     def __init__(
         self,
@@ -740,7 +758,7 @@ class PiecewiseRationalQuadraticCouplingFixWidth(PiecewiseCoupling):
         tail_bound=1.0,
         apply_unconditional_transform=False,
         img_shape=None,
-        min_bin_width = splines.DEFAULT_MIN_BIN_WIDTH,
+        min_bin_width=splines.DEFAULT_MIN_BIN_WIDTH,
         min_bin_height=splines.DEFAULT_MIN_BIN_HEIGHT,
         min_derivative=splines.DEFAULT_MIN_DERIVATIVE,
     ):
@@ -768,14 +786,16 @@ class PiecewiseRationalQuadraticCouplingFixWidth(PiecewiseCoupling):
             tail_bound_ = tail_bound
 
         if apply_unconditional_transform:
-            unconditional_transform = lambda features: PiecewiseRationalQuadraticFixWidthCDF(
-                shape=[features] + (img_shape if img_shape else []),
-                num_bins=num_bins,
-                tails=tails_,
-                tail_bound=tail_bound_,
-                min_bin_width=min_bin_width,
-                min_bin_height=min_bin_height,
-                min_derivative=min_derivative,
+            unconditional_transform = (
+                lambda features: PiecewiseRationalQuadraticFixWidthCDF(
+                    shape=[features] + (img_shape if img_shape else []),
+                    num_bins=num_bins,
+                    tails=tails_,
+                    tail_bound=tail_bound_,
+                    min_bin_width=min_bin_width,
+                    min_bin_height=min_bin_height,
+                    min_derivative=min_derivative,
+                )
             )
         else:
             unconditional_transform = None
@@ -798,11 +818,13 @@ class PiecewiseRationalQuadraticCouplingFixWidth(PiecewiseCoupling):
             return self.num_bins * 2 + 1
 
     def _piecewise_cdf(self, inputs, transform_params, inverse=False):
-        #if init_width == None 
+        # if init_width == None
         unnormalized_widths = self.unnormalized_widths
-        unnormalized_heights = transform_params[..., :self.num_bins ]
+        unnormalized_heights = transform_params[..., : self.num_bins]
         unnormalized_derivatives = transform_params[..., self.num_bins :]
-        assert  unnormalized_widths.shape ==  unnormalized_heights.shape, f"{unnormalized_widths.shape}, { unnormalized_heights.shape}\n"
+        assert (
+            unnormalized_widths.shape == unnormalized_heights.shape
+        ), f"{unnormalized_widths.shape}, { unnormalized_heights.shape}\n"
         if hasattr(self.transform_net, "hidden_features"):
             unnormalized_widths /= np.sqrt(self.transform_net.hidden_features)
             unnormalized_heights /= np.sqrt(self.transform_net.hidden_features)

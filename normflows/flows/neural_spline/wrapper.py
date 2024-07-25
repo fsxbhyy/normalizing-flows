@@ -27,11 +27,18 @@ class VegasLinearSpline(Flow):
         num_input_channels,
         integration_region,
         batchsize,
+        num_adapt_samples=1000000,
+        num_increments=1000,
     ):
         super().__init__()
 
         self.pvct = PieceWiseVegasCoupling(
-            func, num_input_channels, integration_region, batchsize
+            func,
+            num_input_channels,
+            integration_region,
+            batchsize,
+            num_adapt_samples,
+            num_increments,
         )
 
     def forward(self, z):
@@ -121,7 +128,7 @@ class CoupledRationalQuadraticSpline(Flow):
         num_input_channels,
         num_blocks,
         num_hidden_channels,
-        init_width = None,
+        init_width=None,
         num_context_channels=None,
         num_bins=8,
         tails=None,  # "linear",
@@ -189,7 +196,7 @@ class CoupledRationalQuadraticSpline(Flow):
             self.prqct = PiecewiseRationalQuadraticCouplingFixWidth(
                 mask=mask_input,
                 transform_net_create_fn=transform_net_create_fn,
-                init_width = init_width,
+                init_width=init_width,
                 num_bins=num_bins,
                 tails=tails,
                 tail_bound=tail_bound,
