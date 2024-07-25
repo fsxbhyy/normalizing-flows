@@ -4,6 +4,7 @@ from warnings import warn
 from scipy.stats import kstest
 import time
 import traceback
+import numpy as np
 
 
 class VegasMap(torch.nn.Module):
@@ -23,29 +24,31 @@ class VegasMap(torch.nn.Module):
         super().__init__()
 
         vegas_map = vegas.AdaptiveMap(integration_region, ninc=num_increments)
-        # y = np.random.uniform(0.0, 1.0, (num_adapt_samples, num_input_channels))
 
         nblock = num_adapt_samples // batchsize
         num_adapt_samples = nblock * batchsize
-        y = torch.rand(num_adapt_samples, num_input_channels, dtype=torch.float64)
+        # y = torch.rand(num_adapt_samples, num_input_channels, dtype=torch.float64)
+        y_np = np.random.uniform(0.0, 1.0, (num_adapt_samples, num_input_channels))
         fx = torch.empty(num_adapt_samples, dtype=torch.float64)
 
         # @vegas.batchintegrand
         # def func(x):
         #     return torch.Tensor.numpy(target.prob(torch.Tensor(x)))
-        # vegas_map.adapt_to_samples(y.numpy(), func, nitn=niters)
+        # vegas_map.adapt_to_samples(y_np, func, nitn=niters)
 
-        x = torch.empty_like(y)
+        x = torch.empty(num_adapt_samples, num_input_channels, dtype=torch.float64)
         jac = torch.empty(num_adapt_samples, dtype=torch.float64)
         f2 = torch.empty(num_adapt_samples, dtype=torch.float64)
         for _ in range(niters):
-            vegas_map.map(y.numpy(), x.numpy(), jac.numpy())
+            # vegas_map.map(y.numpy(), x.numpy(), jac.numpy())
+            vegas_map.map(y_np, x.numpy(), jac.numpy())
             for i in range(nblock):
                 fx[i * batchsize : (i + 1) * batchsize] = target.prob(
                     x[i * batchsize : (i + 1) * batchsize]
                 )
             f2 = (jac * fx) ** 2
-            vegas_map.add_training_data(y.numpy(), f2.numpy())
+            # vegas_map.add_training_data(y.numpy(), f2.numpy())
+            vegas_map.add_training_data(y_np, f2.numpy())
             vegas_map.adapt(alpha=alpha)
 
         self.register_buffer("y", torch.empty(batchsize, num_input_channels))

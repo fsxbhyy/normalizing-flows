@@ -7,8 +7,6 @@ import matplotlib.pyplot as plt
 import vegas
 from vegas_torch import VegasMap
 
-import torch.utils.benchmark as benchmark
-
 
 # To avoid copying things to GPU memory,
 # ideally allocate everything in torch on the GPU
@@ -31,12 +29,9 @@ niters = 20
 num_adapt_samples = 1000000
 
 alpha_opt = abs(solution / (solution + 1))
-# batchsize = 32768
-batchsize = 50000
-# nblocks = 3052
-nblocks = 100
-# therm_steps = 1000
-therm_steps = 50
+batchsize = 32768
+nblocks = 3052
+therm_steps = nblocks // 2
 mu = 0.0
 step_size = 0.1
 # type = "gaussian"  # "gaussian" or "uniform"
@@ -80,59 +75,73 @@ map_torch = VegasMap(
 )
 map_torch = map_torch.to(device)
 
+# Importance sampling with Vegas map (torch)
+start_time = time.time()
+mean, std = map_torch.integrate_block(nblocks)
+print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
+end_time = time.time()
+wall_clock_time = end_time - start_time
+print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
 
-# benchmark
-def vegasmap_func():
-    map_torch.y[:] = torch.rand(map_torch.y.shape, device=device)
-    map_torch.x[:], map_torch.jac[:] = map_torch.forward(map_torch.y)
-
-
-t1 = benchmark.Timer(
-    stmt="vegasmap_func()",
-    globals={"vegasmap_func": vegasmap_func},
-    label="VegasMap (order {0} beta {1})".format(order, beta),
-    sub_label="forward (batchsize {0})".format(batchsize),
-)
-print(t1.timeit(50))
 
 # Vegas-map MCMC
 len_chain = nblocks
 start_time = time.time()
-t1 = benchmark.Timer(
-    stmt="map_torch.mcmc(len_chain, alpha=0.1, burn_in=therm_steps, type=type, mix_rate=mix_rate)",
-    globals={
-        "map_torch": map_torch,
-        "len_chain": len_chain,
-        "therm_steps": therm_steps,
-        "type": type,
-        "mix_rate": mix_rate,
-    },
-    label="VegasMap (order {0} beta {1})".format(order, beta),
-    sub_label="MCMC (batchsize {0})".format(batchsize),
+mean, error, adapt_step_size = map_torch.mcmc(
+    len_chain,
+    alpha=0.0,
+    burn_in=therm_steps,
+    step_size=step_size,
+    mu=mu,
+    type=type,
+    mix_rate=mix_rate,
+    adaptive=True,
 )
-print("benchmark time:", time.time() - start_time)
+print("   VEGAS-map MCMC (alpha = 0):", f"{mean:.6f} +- {error:.6f}")
+print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))
+for alpha in [0.1, 0.9, 1.0]:
+    start_time = time.time()
+    mean, error = map_torch.mcmc(
+        len_chain,
+        alpha=alpha,
+        burn_in=therm_steps,
+        step_size=adapt_step_size,
+        mu=mu,
+        type=type,
+        mix_rate=mix_rate,
+    )  # , thinning=20
+    print(f"   VEGAS-map MCMC (alpha = {alpha}):", f"{mean:.6f} +- {error:.6f}")
+    print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))
 
-print(t1.timeit(5))
 
+# @vegas.batchintegrand
+# def integrand_eval(x):
+#     return torch.Tensor.numpy(diagram_eval.prob(torch.Tensor(x)))
+
+
+# def smc(f, neval, dim):
+#     "integrates f(y) over dim-dimensional unit hypercube"
+#     y = np.random.uniform(0, 1, (neval, dim))
+#     fy = f(y)
+#     return (np.average(fy), np.std(fy) / neval**0.5)
+
+# # without map
 # start_time = time.time()
-# mean, error, adapt_step_size = map_torch.mcmc(
-#     len_chain,
-#     alpha=0.0,
-#     burn_in=therm_steps,
-#     step_size=step_size,
-#     mu=mu,
-#     type=type,
-#     mix_rate=mix_rate,
-#     adaptive=True,
-# )
-# print("   VEGAS-map MCMC (alpha = 0):", f"{mean:.6f} +- {error:.6f}")
-# print("MCMC integration time: {:.3f}s \n".format(time.time() - start_time))
-
-
-# # Importance sampling with Vegas map (torch)
-# start_time = time.time()
-# mean, std = map_torch.integrate_block(nblocks)
-# print("   Importance sampling with VEGAS map (torch):", f"{mean:.6f} +- {std:.6f}")
+# data = []
+# for i in range(nblocks):
+#     data.append(smc(integrand_eval, batchsize, dim)[0])
+# data = np.array(data)
+# r = (np.average(data), np.std(data) / nblocks**0.5)
+# print("   SMC (no map):", f"{r[0]:.6f} +- {r[1]:.6f}")
 # end_time = time.time()
 # wall_clock_time = end_time - start_time
-# print(f"Wall-clock time: {wall_clock_time:.3f} seconds \n")
+# print(f"Wall-clock time: {wall_clock_time:.3f} seconds")
+
+# print(bins)
+# torch.save(hist, "histogramVegas_o{0}_beta{1}.pt".format(order, beta))
+# torch.save(hist_weight, "histogramWeightVegas_o{0}_beta{1}.pt".format(order, beta))
+
+
+# integ = vegas.Integrator(m, alpha=0.0, beta=0.0)
+# r = integ(func, neval=5e7, nitn=5)
+# print(r.summary())

@@ -33,7 +33,7 @@ traced_batchsize = [1000, 10000, 20000, 50000, 100000]
 order = 1
 beta = 1.0
 batch_size = 10000
-num_blocks = 1
+num_blocks = 2
 num_hidden_channels = 32
 num_bins = 8
 accum_iter = 1
@@ -491,9 +491,9 @@ def main(argv):
         pmodel_state_dict.update(partial_state_dict)
         nfm.load_state_dict(pmodel_state_dict)
 
-    # for name, param in nfm.named_parameters():
-    #     if param.requires_grad:
-    #         print(name, param.data.shape)
+    for name, param in nfm.named_parameters():
+        if param.requires_grad:
+            print(name, param.data.shape)
     epochs = Nepochs
     blocks = Nblocks
 

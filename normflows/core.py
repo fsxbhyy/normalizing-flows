@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from warnings import warn
+
 from scipy.stats import kstest
 import time
 
@@ -410,7 +411,7 @@ class NormalizingFlow(nn.Module):
         )
         print(f"Integrated |f|: Mean: {mean_abs}, std: {std_abs/num_blocks**0.5}.")
 
-        print("Statistical analysis time: ", time.time() - start_time)
+        print(f"Statistical analysis time: {time.time() - start_time} s")
         return (
             mean_combined,
             error_combined,
@@ -573,7 +574,7 @@ class NormalizingFlow(nn.Module):
         accept = torch.empty(batch_size, device=device, dtype=torch.bool)
 
         bool_mask = torch.zeros(batch_size, device=device, dtype=torch.bool)
-        print("Initialization time: ", time.time() - start_time)
+        print(f"Initialization time: {time.time() - start_time} s")
 
         # burn-in
         start_time = time.time()
@@ -619,7 +620,7 @@ class NormalizingFlow(nn.Module):
                 else:
                     step_size *= 1.1
         print("Adjusted step size: ", step_size)
-        print("Burn-in time: ", time.time() - start_time)
+        print(f"Burn-in time: {time.time() - start_time} s")
 
         self.p.val[:] = self.p.prob(self.p.samples)
         new_prob = torch.empty_like(self.p.val)
@@ -687,7 +688,7 @@ class NormalizingFlow(nn.Module):
         var_p /= num_measure
         var_q /= num_measure
         cov_pq /= num_measure
-        print("MCMC with measurement time: ", time.time() - start_time)
+        print(f"MCMC with measurement time: {time.time() - start_time} s")
 
         # Statistical analysis
         print("Start statistical analysis...")
@@ -809,7 +810,7 @@ class NormalizingFlow(nn.Module):
             )
         )
 
-        print("Statistical analysis time: ", time.time() - start_time)
+        print(f"Statistical analysis time: {time.time() - start_time} s")
 
         if adaptive:
             return ratio_mean, ratio_err, step_size

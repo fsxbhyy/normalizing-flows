@@ -6,6 +6,7 @@ from parquetAD import FeynmanDiagram, load_leaf_info
 # from nsf_integrator import generate_model
 from nsf_annealing import generate_model
 import os
+import torch.utils.benchmark as benchmark
 
 enable_cuda = True
 device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
@@ -18,9 +19,9 @@ solution = 0.23  # order 2
 
 nfm_batchsize = 50000
 # batch_size = 32768
-batch_size = 20000
+batch_size = 50000
 # len_chain = 3052
-len_chain = 1000
+len_chain = 100
 therm_steps = len_chain // 2
 step_size = 0.1
 mix_rate = 0.1
@@ -36,7 +37,7 @@ if mix_rate != 1.0:
 print("\n")
 
 num_hidden_layers = 2
-model_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state.pt".format(
+model_state_dict_path = "nfm_o{0}_beta{1}_l{2}c32b8_state_Re0630.pt".format(
     order, beta, num_hidden_layers
 )
 # model_state_dict_path = "nfm_o{0}_beta{1}_state_l2c32b8_anneal.pt".format(order, beta)
@@ -94,51 +95,50 @@ def main(beta, len_chain, batch_size, nfm_batchsize):
     start_time = time.time()
     num_hist_bins = 25
     with torch.no_grad():
-        mean, err, partition_z = nfm.integrate_block(len_chain, num_hist_bins)
+        # mean, err, partition_z = nfm.integrate_block(len_chain, num_hist_bins)
+        mean, err, partition_z = nfm.integrate_block(10, num_hist_bins)
     print("Final integration time: {:.3f}s".format(time.time() - start_time))
     print(
         "Result with {:d} is {:.5e} +/- {:.5e}. \n".format(
             len_chain * batch_size, mean, err
         )
     )
-    loss = nfm.loss_block(400, partition_z)
-    print("Loss = ", loss, "\n")
+    # loss = nfm.loss_block(400, partition_z)
+    # print("Loss = ", loss, "\n")
 
-    start_time = time.time()
-    mean_mcmc, err_mcmc, adapt_step_size = nfm.mcmc_integration(
-        len_chain=len_chain,
-        thinning=1,
-        alpha=0.0,
-        burn_in=therm_steps,
-        step_size=step_size,
-        mix_rate=mix_rate,
-        adaptive=True,
-        adapt_acc_rate=accept_rate,
+    t1 = benchmark.Timer(
+        stmt="nfm.mcmc_integration(len_chain=len_chain, alpha=0.1, burn_in=therm_steps, mix_rate=mix_rate)",
+        globals={
+            "nfm": nfm,
+            "len_chain": len_chain,
+            "therm_steps": therm_steps,
+            "mix_rate": mix_rate,
+        },
+        num_threads=1,
+        label="MCMC integration (order {0}, beta {1}, batchsize {2})".format(
+            order, beta, batch_size
+        ),
     )
-    print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
-    print("alpha = 0")
-    print(
-        "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n".format(
-            len_chain * batch_size, mean_mcmc, err_mcmc
-        )
-    )
-    for alpha in [0.1, 0.9, 1.0]:
-        start_time = time.time()
-        mean_mcmc, err_mcmc = nfm.mcmc_integration(
-            len_chain=len_chain,
-            thinning=1,
-            alpha=alpha,
-            burn_in=therm_steps,
-            step_size=adapt_step_size,
-            mix_rate=mix_rate,
-        )
-        print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
-        print("alpha = ", alpha)
-        print(
-            "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n".format(
-                len_chain * batch_size, mean_mcmc, err_mcmc
-            )
-        )
+
+    print(t1.timeit(5))
+
+    # start_time = time.time()
+    # mean_mcmc, err_mcmc, adapt_step_size = nfm.mcmc_integration(
+    #     len_chain=len_chain,
+    #     thinning=1,
+    #     alpha=0.0,
+    #     burn_in=therm_steps,
+    #     step_size=step_size,
+    #     mix_rate=mix_rate,
+    #     adaptive=True,
+    # )
+    # print("MCMC integration time: {:.3f}s".format(time.time() - start_time))
+    # print("alpha = 0")
+    # print(
+    #     "MCMC result with {:d} samples is {:.5e} +/- {:.5e}. \n".format(
+    #         len_chain * batch_size, mean_mcmc, err_mcmc
+    #     )
+    # )
 
 
 if __name__ == "__main__":

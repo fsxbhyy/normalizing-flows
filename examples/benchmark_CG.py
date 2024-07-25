@@ -2,18 +2,94 @@ import torch
 import pandas as pd
 from funcs_sigma import *
 from parquetAD import FeynmanDiagram, load_leaf_info
+from nsf_annealing import generate_model
+
 import os
 import torch.utils.benchmark as benchmark
 import numpy as np
 from memory_profiler import memory_usage
+import time
+import gc
 
 enable_cuda = True
 device = torch.device("cuda" if torch.cuda.is_available() and enable_cuda else "cpu")
 
 max_order = 5
-beta = 10.0
+beta = 32.0
 batch_size = 10000
-Neval = 20
+# Neval = 20
+Neval = 1
+
+
+def benchmark_NF(order, beta, batch_size):
+    model_state_dict_path = "nfm_o{0}_beta{1}_l2c32b8_state_Re0630.pt".format(
+        order, beta
+    )
+
+    root_dir = os.path.join(os.path.dirname(__file__), "funcs_sigma/")
+    num_loops = [2, 6, 15, 39, 111, 448]
+    partition = [(order, 0, 0)]
+    name = "sigma"
+    df = pd.read_csv(os.path.join(root_dir, f"loopBasis_{name}_maxOrder6.csv"))
+    with torch.no_grad():
+        # loopBasis = torch.tensor([df[col].iloc[:maxMomNum].tolist() for col in df.columns[:num_loops[order-1]]]).T
+        loopBasis = torch.Tensor(
+            df.iloc[: order + 1, : num_loops[order - 1]].to_numpy()
+        )
+    leafstates = []
+    leafvalues = []
+
+    for key in partition:
+        key_str = "".join(map(str, key))
+        state, values = load_leaf_info(root_dir, name, key_str)
+        leafstates.append(state)
+        leafvalues.append(values)
+
+    print("Loading normalizing-flow model")
+    start_time = time.time()
+    state_dict = torch.load(
+        model_state_dict_path, map_location=device
+    )  # ["model_state_dict"]
+    nfm_batchsize = state_dict["p.samples"].shape[0]
+
+    diagram_nfm = FeynmanDiagram(
+        order, beta, loopBasis, leafstates[0], leafvalues[0], nfm_batchsize
+    )
+    diagram = FeynmanDiagram(
+        order, beta, loopBasis, leafstates[0], leafvalues[0], batch_size
+    )
+
+    partial_state_dict = {
+        k: v for k, v in state_dict.items() if k in state_dict and "p." not in k
+    }
+    nfm = generate_model(
+        diagram_nfm,
+        num_blocks=2,
+        num_hidden_channels=32,
+        num_bins=8,
+    )
+    nfm_state_dict = nfm.state_dict()
+    nfm_state_dict.update(partial_state_dict)
+    nfm.load_state_dict(nfm_state_dict)
+    nfm.p = diagram
+    nfm = nfm.to(device)
+    nfm.eval()
+    print("Loading model takes {:.3f}s \n".format(time.time() - start_time))
+    gc.collect()
+
+    def flow_func():
+        nfm.p.samples[:], nfm.p.log_q[:] = nfm.q0(batch_size)
+        for flow in nfm.flows:
+            nfm.p.samples[:], nfm.p.log_det[:] = flow(nfm.p.samples)
+            nfm.p.log_q -= nfm.p.log_det
+
+    t1 = benchmark.Timer(
+        stmt="flow_func()",
+        globals={"flow_func": flow_func},
+        label="Normalizing-flow (order {0} beta {1})".format(order, beta),
+        sub_label="z->x flow (batchsize {0})".format(batch_size),
+    )
+    print(t1.timeit(Neval))
 
 
 def benchmark_diagram(order, beta, batch_size):
@@ -143,7 +219,8 @@ def benchmark_graph(batch_size, Neval):
 
 
 if __name__ == "__main__":
-    for o in range(1, max_order + 1):
-        benchmark_diagram(o, beta, batch_size)
+    # for o in range(1, max_order + 1):
+    #     benchmark_diagram(o, beta, batch_size)
     # benchmark_diagram(6, beta, batch_size)
     # benchmark_graph(batch_size, Neval)
+    benchmark_NF(5, beta, batch_size)

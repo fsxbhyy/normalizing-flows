@@ -118,7 +118,8 @@ def train_model(
     print("start training \n")
 
     # Initialize optimizer and scheduler
-    optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
+    # optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr)  # , weight_decay=1e-5)
+    optimizer = torch.optim.Adam(nfm.parameters(), lr=init_lr, weight_decay=1e-3)
     if has_scheduler:
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iter)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(

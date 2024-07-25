@@ -25,14 +25,14 @@ traced_batchsize = [1000, 10000, 20000, 50000, 100000]
 order = 1
 beta = 1.0
 batch_size = 10000
-num_layers = 8
+num_layers = 32
 accum_iter = 1
 
-init_lr = 4e-3
+init_lr = 1e-3
 Nepochs = 100
 Nblocks = 400
 
-is_save = True
+is_save = False
 is_annealing = False
 has_proposal_rnvp = False
 # has_proposal_rnvp = True
@@ -431,7 +431,8 @@ def main(argv):
                 max_iter=epochs,
                 num_samples=diagram.batchsize,
                 accum_iter=accum_iter,
-                has_scheduler=True,
+                # has_scheduler=True,
+                has_scheduler=False,
                 proposal_model=None,
                 save_checkpoint=True,
             )
